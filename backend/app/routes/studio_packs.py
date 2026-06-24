@@ -356,3 +356,160 @@ async def list_org_packs(
         ]}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e), "packs": []}
+
+
+_CATEGORY_BY_ID = {
+    # Performance & operating analytics
+    "ebitda-good-bad-ugly": "Performance",
+    "variance-commentary": "Performance",
+    "unit-economics": "Performance",
+    # Valuation (market-data dependent)
+    "comps-analysis": "Valuation",
+    "dcf-valuation": "Valuation",
+    "earnings-vs-consensus": "Valuation",
+    # Fund / PE / portfolio
+    "returns-analysis": "Fund / PE",
+    "nav-tie-out": "Fund / PE",
+    "portfolio-monitoring": "Fund / PE",
+    # Accounting / close
+    "gl-reconciliation": "Accounting",
+    "three-statement-integrity": "Accounting",
+    # Output / deliverables
+    "pptx-author": "Output",
+    "xlsx-author": "Output",
+    "teaser-builder": "Output",
+    "deck-refresh": "Output",
+}
+
+
+def _category_for(pack: dict) -> str:
+    """Curated analytical category for the Skills rail (by pack id, then domain
+    prefix fallback). Distinct from tier (which is data-readiness)."""
+    pid = str(pack.get("id") or "")
+    if pid in _CATEGORY_BY_ID:
+        return _CATEGORY_BY_ID[pid]
+    dom = str(pack.get("domain") or "")
+    if dom.startswith("finance."):
+        return "Finance"
+    return "General"
+
+
+def _tier_for(pack: dict) -> str:
+    """Best-effort tier label from the pack's domain / inputs. Tier A runs on our
+    data, Tier C is output-only (no measure inputs), Tier B needs an external feed
+    (declares a non-optional input the warehouse won't have, e.g. peer multiples)."""
+    pid = str(pack.get("id") or "")
+    feed = {"comps-analysis", "dcf-valuation", "earnings-vs-consensus"}
+    out = {"pptx-author", "xlsx-author", "teaser-builder", "deck-refresh"}
+    if pid in feed:
+        return "B"
+    if pid in out:
+        return "C"
+    return "A"
+
+
+@router.get("/packs/library", response_model=dict)
+async def list_pack_library(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Global catalog of every Domain Pack the platform ships (the yaml library)
+    plus this org's DB-backed org packs — for the Build → Skills page. Each entry
+    carries its domain, tier, trigger hints, required inputs, and how many studios
+    in this org have it bound (active count). Read-only, fail-soft. Gated by
+    DOMAIN_PACKS so the section hides when the feature is off."""
+    _require_flag()
+    try:
+        from app.ai.packs import registry
+        from app.models.studio import StudioBoundPack, Studio
+
+        org_id = str(organization.id)
+        # bound counts per pack across this org (active vs any), for the "in use" chip
+        sids = (
+            await db.execute(
+                select(Studio.id).where(
+                    Studio.organization_id == org_id, Studio.deleted_at.is_(None)
+                )
+            )
+        ).scalars().all()
+        sids = [str(s) for s in sids]
+        bound: dict = {}
+        if sids:
+            rows = (
+                await db.execute(
+                    select(StudioBoundPack.pack_id, StudioBoundPack.status)
+                    .where(StudioBoundPack.studio_id.in_(sids), StudioBoundPack.deleted_at.is_(None))
+                )
+            ).all()
+            for pid_, st_ in rows:
+                t, a = bound.get(str(pid_), (0, 0))
+                bound[str(pid_)] = (t + 1, a + (1 if st_ == "active" else 0))
+
+        def _inputs(pack: dict) -> list:
+            out = []
+            for key, spec in (pack.get("required_inputs") or {}).items():
+                spec = spec if isinstance(spec, dict) else {}
+                out.append({
+                    "key": key,
+                    "role": spec.get("role") or "any",
+                    "optional": bool(spec.get("optional")),
+                    "desc": spec.get("desc") or "",
+                })
+            return out
+
+        catalog = []
+        for pack in registry.list_packs():
+            pid = str(pack.get("id") or "")
+            b_total, b_active = bound.get(pid, (0, 0))
+            catalog.append({
+                "pack_id": pid,
+                "name": pack.get("name") or pid,
+                "domain": pack.get("domain") or "general",
+                "tier": _tier_for(pack),
+                "category": _category_for(pack),
+                "source": "library",
+                "triggers": (pack.get("trigger_hints") or [])[:12],
+                "inputs": _inputs(pack),
+                "output": ((pack.get("output_spec") or {}) if isinstance(pack.get("output_spec"), dict) else {}).get("format") or pack.get("format") or "",
+                "bound_studios": b_total,
+                "active_studios": b_active,
+            })
+
+        # org packs (DB-backed, user-promoted)
+        org_rows = (
+            await db.execute(
+                select(OrgPack).where(
+                    OrgPack.organization_id == org_id, OrgPack.deleted_at.is_(None)
+                ).order_by(OrgPack.created_at.desc())
+            )
+        ).scalars().all()
+        for r in org_rows:
+            body = r.pack_body if isinstance(r.pack_body, dict) else {}
+            pid = str(r.pack_id)
+            b_total, b_active = bound.get(pid, (0, 0))
+            catalog.append({
+                "pack_id": pid,
+                "name": body.get("name") or pid,
+                "domain": body.get("domain") or "general",
+                "tier": "Org",
+                "category": "Org",
+                "source": "org",
+                "triggers": (body.get("trigger_hints") or [])[:12],
+                "inputs": _inputs(body),
+                "output": "",
+                "bound_studios": b_total,
+                "active_studios": b_active,
+                "status": r.status,
+            })
+
+        catalog.sort(key=lambda x: (x["tier"], x["name"].lower()))
+        totals = {
+            "total": len(catalog),
+            "library": sum(1 for c in catalog if c["source"] == "library"),
+            "org": sum(1 for c in catalog if c["source"] == "org"),
+            "in_use": sum(1 for c in catalog if c["active_studios"] > 0),
+        }
+        return {"ok": True, "packs": catalog, "totals": totals}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e), "packs": [], "totals": {}}

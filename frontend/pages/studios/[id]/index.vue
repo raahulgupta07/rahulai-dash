@@ -899,51 +899,9 @@
                             </ul>
                         </section>
 
-                        <!-- SKILLS -->
+                        <!-- SKILLS (review/approve bound domain packs) -->
                         <section v-else-if="activeTab === 'skills'">
-                            <div class="flex items-start justify-between mb-4">
-                                <div>
-                                    <h2 class="text-lg font-semibold text-[#1f2328]" style="font-family: ui-serif, Georgia, 'Times New Roman', serif">{{ $t('studio.skillsTitle') }}</h2>
-                                    <p class="text-xs text-[#6b6b6b] mt-0.5">{{ $t('studio.skillsHint') }}</p>
-                                </div>
-                                <button v-if="canEdit" type="button" class="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[#C2683F] hover:bg-[#A8542F] rounded-lg px-3.5 py-1.5 transition-colors" @click="openAddSkill">
-                                    <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
-                                    {{ $t('studio.pinSkill') }}
-                                </button>
-                            </div>
-
-                            <div v-if="loadingSkills" class="flex items-center justify-center py-10 text-[#9a958c]">
-                                <Spinner class="h-4 w-4" /><span class="ms-2 text-xs">{{ $t('common.loading') }}</span>
-                            </div>
-                            <div v-else-if="pinnedSkills.length === 0" class="py-10 text-center border border-dashed border-[#E7E5DD] rounded-2xl">
-                                <UIcon name="i-heroicons-sparkles" class="w-7 h-7 mx-auto text-[#9a958c] mb-1.5" />
-                                <p class="text-xs text-[#6b6b6b]">{{ $t('studio.noSkillsPinned') }}</p>
-                            </div>
-                            <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div
-                                    v-for="sk in pinnedSkills"
-                                    :key="sk.id"
-                                    class="flex items-start justify-between p-3 rounded-2xl border border-[#E7E5DD] bg-white"
-                                >
-                                    <div class="min-w-0">
-                                        <div class="flex items-center gap-1.5">
-                                            <UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-[#C2683F] shrink-0" />
-                                            <span class="text-xs font-medium text-[#1f2328] truncate">{{ sk.name }}</span>
-                                        </div>
-                                        <p v-if="sk.description" class="text-[11px] text-[#6b6b6b] line-clamp-2 mt-0.5">{{ sk.description }}</p>
-                                    </div>
-                                    <UButton
-                                        v-if="canEdit"
-                                        color="gray"
-                                        variant="ghost"
-                                        size="2xs"
-                                        icon="i-heroicons-x-mark"
-                                        @click="unpinSkill(sk.id)"
-                                    >
-                                        {{ $t('studio.unpinSkill') }}
-                                    </UButton>
-                                </div>
-                            </div>
+                            <StudioSkills :studio-id="studioId" :sources="sources" :can-edit="canEdit" />
                         </section>
 
                         <!-- ARTIFACTS -->
@@ -994,11 +952,6 @@
                         <!-- TEACH (paste an analysis → classify into reviewable spans) -->
                         <section v-else-if="activeTab === 'teach'">
                             <StudioTeach :studio-id="studioId" :sources="sources" :can-edit="canEdit" />
-                        </section>
-
-                        <!-- SKILLS (review/approve bound domain packs) -->
-                        <section v-else-if="activeTab === 'skills'">
-                            <StudioSkills :studio-id="studioId" :sources="sources" :can-edit="canEdit" />
                         </section>
 
                         <!-- EVALS -->
