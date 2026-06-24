@@ -70,17 +70,19 @@
                             v-for="c in categoryRail"
                             :key="c.key"
                             type="button"
-                            class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition"
+                            class="group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition"
                             :class="selectedCategory === c.key
                                 ? 'bg-[#ECEAE1] text-[#1f2328] font-medium'
                                 : 'text-[#6b6b6b] hover:bg-[#F4F1EA] hover:text-[#1f2328]'"
                             @click="selectedCategory = c.key"
                         >
-                            <span
-                                class="w-1.5 h-1.5 rounded-full shrink-0"
-                                :class="c.active ? 'bg-[#3f9e6a]' : (selectedCategory === c.key ? 'bg-[#C2683F]' : 'bg-transparent')"
-                            ></span>
+                            <Icon
+                                :name="categoryIcon(c.key)"
+                                class="w-4 h-4 shrink-0"
+                                :class="selectedCategory === c.key ? 'text-[#C2683F]' : 'text-[#9a958c] group-hover:text-[#6b6b6b]'"
+                            />
                             <span class="truncate">{{ c.label }}</span>
+                            <span v-if="c.active" class="w-1.5 h-1.5 rounded-full bg-[#3f9e6a] shrink-0" title="has active packs"></span>
                             <span
                                 class="ms-auto rounded-full px-1.5 py-0.5 text-[11px]"
                                 :class="selectedCategory === c.key ? 'bg-white text-[#6b6b6b]' : 'bg-[#ECEAE1] text-[#9a958c]'"
@@ -256,6 +258,25 @@ const selectedSkill = ref<Skill | null>(null)
 
 const search = ref('')
 const selectedCategory = ref('All')
+
+// Rail icons per category (matches the studio sidebar look).
+const CATEGORY_ICON: Record<string, string> = {
+    All: 'heroicons:squares-2x2',
+    Performance: 'heroicons:chart-bar',
+    Valuation: 'heroicons:scale',
+    'Fund / PE': 'heroicons:briefcase',
+    Accounting: 'heroicons:calculator',
+    Output: 'heroicons:presentation-chart-line',
+    Analysis: 'heroicons:magnifying-glass-circle',
+    'Data Quality': 'heroicons:shield-check',
+    Storytelling: 'heroicons:sparkles',
+    Stakeholder: 'heroicons:users',
+    Documentation: 'heroicons:book-open',
+    Workflow: 'heroicons:arrow-path-rounded-square',
+    Org: 'heroicons:building-office-2',
+    Playbooks: 'heroicons:bolt',
+}
+const categoryIcon = (key: string) => CATEGORY_ICON[key] || 'heroicons:puzzle-piece'
 
 const scopeLabel = (scope?: string) => {
     const s = (scope || '').toLowerCase()
