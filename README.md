@@ -69,9 +69,27 @@ Training is **async** (`POST /studios/{id}/train`, poll `GET .../train/status`) 
 
 ---
 
+## Domain Packs — lightweight "Skills" (shipped)
+
+A **Domain Pack** is a declarative method (a `.yaml` in `backend/app/ai/packs/library/`) — a data-blind analytical recipe (method + required inputs + output spec). It is **never executed**: the router injects its `[METHOD] + [BINDING]` into the AgentV2 planner so the stable `create_data`/`create_artifact` loop follows it. This is the lightweight alternative to the native heavy Skills engine (sandbox exec → livelocks, kept OFF).
+
+**Why it doesn't pick the wrong skill:** a 3-layer gate — (1) **bind gate** (hard): only packs whose required inputs map to the agent's REAL columns are candidates; (2) **trigger gate**: the question must match the pack's domain; (3) **score + learned win-rate**.
+
+- **Bind / route** — `binder` maps each logical input → a real column per agent; `router` picks the one pack per question. A pack with unmet inputs stays **dormant** ("needs a Budget column"), never mis-fires.
+- **Teach Box** (Studio → Teach) — paste an analysis → one LLM call classifies it into `SKILL`/`INSTRUCTION`/`DATA_RULE`/`KNOWLEDGE`, each born **pending** behind the review gate.
+- **Train wiring** — at Auto-train, `PACK_AUTOBIND` tries every library pack against the profiled schema (pending/dormant rows); active packs bias the query/eval generators; pack-carried + method-minted **goldens** seed the eval suite.
+- **Adaptive** — 👍/👎 on an answer updates a per-`(pack, question-cluster)` **win-rate**; the router demotes (and benches) a proven loser. Dormant packs are **re-checked on schema drift** (dormant→pending when the column appears). A studio skill can be **promoted to the org** (shared across studios).
+- **Review UI** — Studio → **Skills** tab (approve/reject/promote, see binding + win-rate + dormant hints); org-wide **Settings → Pack Analytics** (fires / win-rate / dormant backlog).
+
+**Library (15 packs):** ebitda-exec-summary + 7 **Tier A** (runs on our data: unit-economics, returns IRR/MOIC, 3-statement, variance, GL-recon, NAV tie-out, portfolio-monitoring), 4 **Tier C** (output: pptx/xlsx/teaser/deck-refresh), 3 **Tier B** (comps/DCF/earnings-vs-consensus — *dormant until a market-data feed is connected*).
+
+Flags: `DOMAIN_PACKS` (master) · `PACK_ROUTER` (per-question activation) · `PACK_AUTOBIND` (bind at train) · `TEACH_BOX`. Plan: `docs/PLAN_TEACH_SKILLS_ENGINE.md`.
+
+---
+
 ## Feature flags
 
-New features are flag-gated (`backend/app/settings/hybrid_flags.py`, env `HYBRID_*`, default OFF; dev `.env` turns them on). Per-org live overrides via Settings → Feature Flags. Key flags: `COLUMN_INTEL · AUTO_QUERIES · AUTO_EVALS · JOIN_GRAPH · DOC_KNOWLEDGE · STUDIOS · SEMANTIC_LAYER · METRICS_CATALOG`. Env knob `STUDIO_LEARN_DAEMON_ENABLED`.
+New features are flag-gated (`backend/app/settings/hybrid_flags.py`, env `HYBRID_*`, default OFF; dev `.env` turns them on). Per-org live overrides via Settings → Feature Flags. Key flags: `COLUMN_INTEL · AUTO_QUERIES · AUTO_EVALS · JOIN_GRAPH · DOC_KNOWLEDGE · STUDIOS · SEMANTIC_LAYER · METRICS_CATALOG · DOMAIN_PACKS · PACK_ROUTER · PACK_AUTOBIND · TEACH_BOX`. Env knob `STUDIO_LEARN_DAEMON_ENABLED`.
 
 ---
 
@@ -89,6 +107,7 @@ New features are flag-gated (`backend/app/settings/hybrid_flags.py`, env `HYBRID
 
 ## Roadmap
 
-- **Smart Fin Pack** (`docs/PLAN_SMART_FIN_PACK.md`, PLAN only) — port Anthropic's `anthropics/financial-services` financial expertise (DCF, comps, 3-statement, …) as **domain packs**, WITHOUT the native Skills engine. Copy the universal *method*, machine-synthesize the *data binding* from each agent's schema, auto-bind by detected domain, train via the existing auto-train pipeline, and self-verify — all on the default `create_data`/`create_artifact` tools. 7 packs tiered by data-need (runs-on-our-data / needs-market-feed / output-only).
+- **Smart Fin Pack — SHIPPED** (engine + Tier A/C + partial Tier B; see **Domain Packs** above and `docs/PLAN_TEACH_SKILLS_ENGINE.md`). Anthropic's `anthropics/financial-services` *method* ported as data-blind packs; binding machine-synthesized per agent; auto-bound at train; adaptive win-rate + drift re-check; review UI. 15 packs live.
+- **Pending — market-data connector** (the one Tier-B blocker): comps/DCF/earnings-vs-consensus packs are authored but bind **dormant** until a feed supplies peer multiples / WACC / consensus estimates. Wiring that connector is the remaining work; the packs light up automatically once the columns exist.
 
 See `CLAUDE.md` for the complete codebase map, landmines, and per-feature changelog.
