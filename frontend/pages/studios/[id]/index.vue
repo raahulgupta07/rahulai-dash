@@ -18,7 +18,7 @@
 
             <template v-else-if="studio">
                 <!-- LEFT RAIL: studio header + grouped nav (anchored, neutral selection) -->
-                <aside class="w-60 shrink-0 bg-[#FBFAF6] border-e border-[#E7E5DD] flex flex-col overflow-y-auto h-full">
+                <aside class="w-60 shrink-0 m-2 bg-[#FBFAF6] border border-[#E7E5DD] rounded-2xl flex flex-col overflow-y-auto">
                     <!-- studio header -->
                     <div class="px-3 pt-3 pb-2 border-b border-[#E7E5DD]">
                         <button class="text-[11px] text-[#9a958c] hover:text-[#6b6b6b] mb-1.5 inline-flex items-center gap-1" @click="router.push('/studios')">
