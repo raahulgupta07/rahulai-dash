@@ -99,6 +99,8 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_CODE_ENRICH": {"label": "Code Enrich (pipeline logic)", "role": "agent"},
     "HYBRID_AGENT_TEMPLATES": {"label": "Agent Templates (share best practices)", "role": "user"},
     "HYBRID_FOLDER_SYNC": {"label": "Folder Sync (desktop auto-ingest)", "role": "user"},
+    "HYBRID_AGENT_ACL": {"label": "Per-Agent Access Control", "role": "user"},
+    "HYBRID_AGENT_CHANNELS": {"label": "Agent Channels (Telegram)", "role": "user"},
 }
 
 
@@ -138,6 +140,19 @@ async def load_overrides_from_db(db) -> int:
 
 class HybridFlags:
     """Lazily-read flag registry. Read at access so env changes (tests) apply."""
+
+    # --- Per-agent access control + channels ---------------------------------
+    @property
+    def AGENT_ACL(self) -> bool:
+        # Enforce StudioMember / share_scope at chat time (per-agent access)
+        # and honour per-agent model override (Studio.config.model_id).
+        return _bool("HYBRID_AGENT_ACL")
+
+    @property
+    def AGENT_CHANNELS(self) -> bool:
+        # Per-agent external channels (Telegram bot bound to one Studio,
+        # with member-only audience + verification). Default OFF.
+        return _bool("HYBRID_AGENT_CHANNELS")
 
     # --- Slice 1: foundation -------------------------------------------------
     @property

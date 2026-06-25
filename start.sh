@@ -98,6 +98,15 @@ for i in {1..3}; do
     sleep $((4 * i))
 done
 
+# Bootstrap the first super-admin from env (idempotent, fail-soft).
+# Runs ONCE here, before uvicorn forks its workers (a FastAPI startup_event
+# would run per-worker and race N workers). cwd is /app/backend (set above for
+# alembic), so scripts/ resolves. The script always exits 0 — never blocks boot.
+if [ -n "$DASH_ADMIN_EMAIL" ] && [ -n "$DASH_ADMIN_PASSWORD" ]; then
+    echo "Seeding super-admin from env (DASH_ADMIN_EMAIL)..."
+    python scripts/seed_admin.py || echo "⚠️  Admin seed skipped/failed (continuing)"
+fi
+
 # Start uvicorn as the single foreground process (SPA is served from the
 # same process via SERVE_FRONTEND=1). tini reaps it on shutdown.
 exec uvicorn main:app \

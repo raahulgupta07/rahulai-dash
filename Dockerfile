@@ -96,7 +96,42 @@ COPY ./vendor/js-libs/ /app/frontend/public/libs/
 # Raise Node heap: the default (~2GB) OOMs (exit 134/SIGABRT) on this build.
 RUN NODE_OPTIONS=--max-old-space-size=6144 yarn generate
 
-FROM cityagent-base:dev
+# -----------------------------------------------------------------------------
+# Runtime base — folded IN from the old external `cityagent-base:dev` image so a
+# clean machine can `docker compose up -d --build` with NO pre-step and NO
+# external/registry image. This stage carries the heavy runtime apt layer
+# (LibreOffice, MS ODBC, FreeTDS, poppler, chromium system deps) + the `app`
+# user. Because it's a cached BuildKit stage, it only re-runs when these
+# instructions change, so code-change rebuilds stay fast.
+# `Dockerfile.base` + `scripts/build.sh` are now OPTIONAL/legacy — kept only as
+# a fast dev-iteration path; this Dockerfile is fully self-contained.
+# -----------------------------------------------------------------------------
+FROM ubuntu:24.04 AS base
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+      curl ca-certificates gnupg git openssh-client python3 python3-venv \
+      tini libpq5 vim-tiny libreoffice-impress poppler-utils && \
+    curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
+    ARCH="$(dpkg --print-architecture)" && \
+    echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod-24.04.list && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt-get install -y --no-install-recommends unixodbc tdsodbc freetds-dev && \
+    (ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 || echo "WARN: msodbcsql18 not available for ${ARCH}") && \
+    if [ "${ARCH}" = "amd64" ]; then \
+      echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" > /etc/apt/sources.list.d/microsoft-prod-22.04.list && \
+      printf 'Package: *\nPin: origin packages.microsoft.com\nPin: release n=jammy\nPin-Priority: 100\n\nPackage: msodbcsql17\nPin: origin packages.microsoft.com\nPin: release n=jammy\nPin-Priority: 900\n' > /etc/apt/preferences.d/microsoft-odbc && \
+      apt-get update && \
+      (ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql17 || echo "WARN: msodbcsql17 install failed"); \
+    fi && \
+    apt-get install -y --no-install-recommends libreoffice-impress poppler-utils && \
+    python3 -m venv /tmp/pw && /tmp/pw/bin/pip install --no-cache-dir playwright && \
+    /tmp/pw/bin/playwright install-deps chromium && rm -rf /tmp/pw && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+RUN groupadd -r app && useradd -r -g app -m -d /home/app -s /usr/sbin/nologin app && \
+    mkdir -p /home/app /app/backend/db /app/frontend && chown -R app:app /app /home/app
+
+FROM base
 
 ENV DEBIAN_FRONTEND=noninteractive
 

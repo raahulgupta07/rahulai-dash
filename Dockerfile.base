@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1.7
+# OPTIONAL / LEGACY: the main `Dockerfile` is now self-contained — its `base`
+# stage holds exactly this runtime setup, so `docker compose up -d --build`
+# needs NO pre-built `cityagent-base:dev`. This file (+ scripts/build.sh) is kept
+# only as a fast dev-iteration path that pre-bakes the heavy apt layer once.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get upgrade -y && \

@@ -44,7 +44,9 @@ services:
 
   app:
     # Build OUR own image from this repo. NEVER pull bagofwords/bagofwords:latest.
-    # Requires cityagent-base:dev (build via scripts/build.sh). App image = cityagent-analytics:dev.
+    # Self-contained build — `docker compose up -d --build` builds everything
+    # (the runtime base is folded into Dockerfile as a `base` stage; no external
+    # cityagent-base:dev needed). App image = cityagent-analytics:dev.
     build:
       context: .
       dockerfile: Dockerfile
@@ -64,6 +66,10 @@ services:
       # SMTP credentials (optional — only needed if smtp_settings in dash-config.yaml uses these)
       # - DASH_SMTP_USERNAME=${DASH_SMTP_USERNAME:-}
       # - DASH_SMTP_PASSWORD=${DASH_SMTP_PASSWORD:-}
+      # First super-admin bootstrap (idempotent; ignored once any user exists)
+      - DASH_ADMIN_EMAIL=${DASH_ADMIN_EMAIL:-}
+      - DASH_ADMIN_PASSWORD=${DASH_ADMIN_PASSWORD:-}
+      - DASH_ADMIN_NAME=${DASH_ADMIN_NAME:-Admin}
       # Config path
       - DASH_CONFIG_PATH=/app/dash-config.yaml
     volumes:

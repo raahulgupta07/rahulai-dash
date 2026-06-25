@@ -71,6 +71,7 @@ from app.routes import (
     dash_settings,
     external_platform,
     external_user_mapping,
+    telegram_webhook,
     slack_webhook,
     teams_webhook,
     whatsapp_webhook,
@@ -272,6 +273,7 @@ app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
 app.include_router(teams_webhook.router)
 app.include_router(whatsapp_webhook.router)
+app.include_router(telegram_webhook.router, prefix="/api")  # hybrid: per-agent Telegram inbound (gated HYBRID_AGENT_CHANNELS)
 app.include_router(webhook.router, prefix="/api")
 app.include_router(webhook_receiver.router)
 app.include_router(step.router, prefix="/api")

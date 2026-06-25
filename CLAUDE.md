@@ -417,7 +417,46 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
 **Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `hybrid-brain`,
-mig head **`foldersync1`**, `VERSION_HYBRID`=**1.9.0**.
+mig head **`agentchan1`**, `VERSION_HYBRID`=**1.11.0**.
+
+**v1.11.0 One-command deploy + env super-admin:** (1) DEPLOY FIX: `Dockerfile` was `FROM cityagent-base:dev`
+(local-only image from `Dockerfile.base`, never in a registry) → clean prod `docker compose up --build`
+failed "pull access denied". FIXED by folding base into main Dockerfile as internal stage `FROM ubuntu:24.04 AS base`
+(byte-for-byte Dockerfile.base content: MS ODBC/FreeTDS/libreoffice/poppler/playwright-deps + app user) +
+final stage `FROM base`. Stages now: backend-builder, qvd2parquet-builder, frontend-builder, base, final.
+`Dockerfile.base`+`scripts/build.sh` kept as optional fast-dev path. New `deploy.sh` (bootstrap .env→warn key→
+compose up). (2) ENV SUPER-ADMIN: no global-superadmin existed (model=first registered user→org owner via
+auth.py:715 `user_count==0` + `_ensure_org_for_first_uninvited_user`); sign-up link removed v1.8.0 so fresh box
+was stuck. NEW `backend/scripts/seed_admin.py` (async, idempotent, fail-soft) run ONCE in `start.sh` after
+alembic before uvicorn: reads DASH_ADMIN_EMAIL/PASSWORD/NAME, skips if unset OR email exists, else creates via
+real user-manager (`get_user_db`→`get_user_manager`→`manager.create(UserCreate, safe=False)` → fires
+on_after_register→org+owner) then fresh-session sets is_active/is_verified/is_superuser=True. Imports:
+`app.dependencies.async_session_maker`/`get_user_db`, `app.core.auth.get_user_manager`,
+`app.schemas.user_schema.UserCreate` (name min_length 3). Vars in docker-compose.yaml app env + .env.example.
+PROVEN live: no-env→skip, existing-email→"already exists skipping". Baked. LANDMINE: seeder gates on email-exists
+NOT user_count==0 — a NEW email on a populated DB would create a non-first user (no bootstrap org); intended use =
+fresh deploy only.
+
+**v1.10.0 Per-agent access control + Telegram channels:** an agent = a `Studio`. New flags
+`HYBRID_AGENT_ACL` + `HYBRID_AGENT_CHANNELS` (`hybrid_flags.py`, default OFF, ON org 55278108).
+(1) ACL: chat-time enforcement in `completion_service.py` — if `flags.AGENT_ACL` and
+`report.studio_id`, calls `resolve_studio_access` (studio_access.py); None→403. Applied to BOTH
+non-stream + stream completion paths (NOT the token-estimate path). Most ACL primitives already
+existed: `Studio.share_scope` (private/org/link), `StudioMember`, member CRUD + `/share` routes.
+(2) Per-agent model override: precedence request `prompt.model_id` > `studio.config['model_id']` >
+org default (same 2 paths, flag-gated). (3) Telegram: mig `agentchan1` adds `studio_id`+`audience`
+to `external_platforms`; routes in `external_platform.py` (`POST/GET/enable/disable/DELETE
+/api/studios/{id}/channels[/telegram]`) + public inbound `telegram_webhook.py`
+(`POST /api/ext/telegram/{studio_id}/webhook`, registered in `main.py`). Reuses ExternalPlatform
+encrypt/decrypt_credentials, ExternalUserMapping verification (24h token), ReportService.create_report,
+CompletionService.create_completion (foreground, reads back final answer), `telegram_send` via httpx.
+Audience members(verify) | anyone(runs as owner). Webhook ALWAYS returns 200 {ok:true} (Telegram
+no-retry). UI: `StudioAccess.vue` "Access & Channels" tab in `studios/[id]/index.vue` (who-can-use
+radios, members, model dropdown, channels list + Telegram add modal); uses `useMyFetch`, fails soft
+on 404. Members GET shape = existing `{id,user_id,role,user_name,user_email}` (NOT email/name).
+LANDMINE v1: Telegram reply is SYNC foreground completion (slow agents may exceed webhook timeout —
+v2 needs background + adapter). LANDMINE: `/verify/{token}` FE page not built (verify loop open).
+LANDMINE: `/app/frontend/dist` owned by ROOT — `docker cp` needs `docker exec -u 0` rm + chown app:app.
 
 **v1.9.0 Default OpenRouter LLM + .env.example:** new orgs auto-seed an OpenRouter
 provider (current models: claude-sonnet-4.6 DEFAULT, claude-haiku-4.5 SMALL, claude-opus-4.8,

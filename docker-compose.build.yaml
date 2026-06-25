@@ -50,7 +50,8 @@ services:
       - ca-network
 
   app:
-    # Requires cityagent-base:dev (build via scripts/build.sh). App image = cityagent-analytics:dev.
+    # Self-contained build — `docker compose up -d --build` builds everything
+    # (runtime base folded into Dockerfile). App image = cityagent-analytics:dev.
     build:
       context: .
       dockerfile: Dockerfile

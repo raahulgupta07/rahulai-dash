@@ -1157,6 +1157,19 @@
                                 </UButton>
                             </div>
                         </section>
+
+                        <!-- ACCESS & CHANNELS -->
+                        <section v-else-if="activeTab === 'access'">
+                            <StudioAccess
+                                :studio-id="studioId"
+                                :studio="studio"
+                                :sources="sources"
+                                :can-edit="canEdit"
+                                :owner-user-id="String(studio?.owner_user_id || '')"
+                                @share-updated="onShareUpdated"
+                                @config-updated="onConfigUpdated"
+                            />
+                        </section>
                     </div>
                 </main>
             </template>
@@ -1344,6 +1357,7 @@
 
 <script setup lang="ts">
 import ShareModal from '~/components/studio/ShareModal.vue'
+import StudioAccess from '~/components/studio/StudioAccess.vue'
 import ArtifactsPanel from '~/components/studio/ArtifactsPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import UploadSpreadsheetModal from '~/components/data/UploadSpreadsheetModal.vue'
@@ -2084,6 +2098,7 @@ const tabs = computed(() => [
     { value: 'monitoring', label: t('studio.tabMonitoring') || 'Monitoring', icon: 'i-heroicons-chart-bar', group: 'operate' },
     { value: 'artifacts', label: t('studio.tabArtifacts'), icon: 'i-heroicons-document-text', group: 'operate' },
     { value: 'settings', label: t('studio.tabSettings'), icon: 'i-heroicons-cog-6-tooth', group: 'manage' },
+    { value: 'access', label: 'Access & Channels', icon: 'i-heroicons-lock-closed', group: 'manage' },
     { value: 'members', label: t('studio.tabMembers'), icon: 'i-heroicons-users', group: 'manage' },
 ])
 
@@ -2758,6 +2773,12 @@ const onShareUpdated = (payload: { share_scope: string; share_token: string | nu
         studio.value.share_scope = payload.share_scope
         studio.value.share_token = payload.share_token
     }
+}
+
+// Sync the per-agent config (e.g. model_id override) back into the local studio
+// object so the picker reflects the saved value without a full refetch.
+const onConfigUpdated = (config: Record<string, any>) => {
+    if (studio.value) studio.value.config = { ...config }
 }
 
 // ---- export this studio as a reusable Agent Template ----

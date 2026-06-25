@@ -14,6 +14,41 @@ An **Agent Studio** wraps a set of pinned data sources (file uploads or warehous
 
 ---
 
+## Deploy (one command)
+
+Clean machine, no pre-step, no external image — the runtime base is folded into
+the `Dockerfile`, so the build is fully self-contained.
+
+```bash
+cp .env.example .env     # then edit .env (see below)
+bash deploy.sh           # checks Docker, bootstraps .env, builds + starts everything
+```
+
+`deploy.sh` is the foolproof path: it verifies Docker is installed/running,
+creates `.env` from `.env.example` on first run (and stops so you can fill it
+in), warns if `DASH_ENCRYPTION_KEY` is empty, then runs the build and prints
+where the app is listening. Prefer the raw command? It's just:
+
+```bash
+docker compose up -d --build
+```
+
+Edit these in `.env` before deploying:
+
+- `DASH_ENCRYPTION_KEY` — Fernet key (44 chars). Generate:
+  `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+- `DASH_ADMIN_EMAIL` / `DASH_ADMIN_PASSWORD` — these create the **first owner
+  account automatically** on first boot.
+
+After it's up, set your **OpenRouter API key** in Settings → Models (it is never
+stored in the repo or `.env`).
+
+> First build can take ~5–20 min (runtime base apt layer + Nuxt `generate`
+> compile). Subsequent rebuilds are seconds-to-minutes thanks to cached
+> BuildKit stages + vendored deps.
+
+---
+
 ## Prerequisites
 
 - **Docker** + Docker Compose v2 (Desktop or engine). All services run in containers.
@@ -26,16 +61,19 @@ An **Agent Studio** wraps a set of pinned data sources (file uploads or warehous
 
 ## Install / quick start
 
+The build is **self-contained** — no separate base-image step. On a clean machine:
+
 ```bash
 # 1. clone, then from the repo root:
 cd "CityAgent Analytics"
 
-# 2. build: pre-pulls base images (with retry), builds cityagent-base:dev once,
-#    then the app image. ~5–10 min cold.
-bash scripts/build.sh
+# 2. create your .env from the template, then edit it (see Configuration below)
+cp .env.example .env
+#    set at least: DASH_ENCRYPTION_KEY, DASH_ADMIN_EMAIL, DASH_ADMIN_PASSWORD
 
-# 3. run (the scale overlay adds Redis + pgbouncer)
-docker compose -f docker-compose.build.yaml -f docker-compose.scale.yaml up -d
+# 3. build + run everything (first cold build ~5–20 min; rebuilds are fast)
+bash deploy.sh
+#    or directly:  docker compose up -d --build
 
 # 4. verify
 curl localhost:3007/health        # -> {"status":"ok"}
@@ -43,35 +81,51 @@ curl localhost:3007/health        # -> {"status":"ok"}
 
 Open **http://localhost:3007**.
 
-**First user:** register at the login screen (or `POST /api/auth/register` with `{email, password, name}`). The first uninvited user auto-creates an org and becomes its admin. Set your own credentials — do **not** ship a default password.
+**First user / admin:** set `DASH_ADMIN_EMAIL` + `DASH_ADMIN_PASSWORD` in `.env` *before* the first boot — the container auto-creates the owner/admin account (idempotent: ignored once any user exists). No sign-up link is shown in the UI. Fallback if you didn't set the env vars: `POST /api/auth/register` with `{email, password, name}` (the first user always becomes org owner).
+
+**LLM:** nothing to seed. A new org is auto-provisioned with an editable **OpenRouter** provider + the current model set. Just paste your OpenRouter key once in **Settings → Models** (it is stored encrypted per-org in the DB — never in the repo or `.env`).
 
 **Ports:** app `:3007` (internal 3000) · Postgres `:5439` · pgbouncer `:6432` · Redis `:6399`.
 
-### Seed the LLM provider (required)
-
-The app has no LLM until you add an OpenRouter key. Either set it in `.env` (see below) before first boot, or seed it after:
-
-```bash
-docker exec ca-app python backend/scripts/seed_openrouter.py
-```
-
-This registers the `custom` (OpenRouter) provider for the org and selects default models. Without it, chat + training will fail.
+> Optional scale overlay (extra Redis + pgbouncer tuning): `docker compose -f docker-compose.yaml -f docker-compose.scale.yaml up -d`.
 
 ---
 
 ## Configuration (`.env`)
 
-Copy `.env.example` → `.env` and set at minimum:
+Copy `.env.example` → `.env`. The keys that matter most:
 
 | Var | What | Notes |
 |---|---|---|
-| `OPENROUTER_API_KEY` | your OpenRouter key | required for any LLM call |
-| `DASH_SECRET_KEY` | Fernet key for encrypting per-org secrets | generate once, keep stable |
-| `DATABASE_URL` | Postgres DSN | defaults wired for the bundled `ca-postgres` |
-| `PUBLIC_URL` | external base URL | needed for embed/SDK + CORS in prod |
-| `STUDIO_LEARN_DAEMON_ENABLED` | background self-learn daemon | leave `0` unless you want it |
+| `DASH_ENCRYPTION_KEY` | Fernet key encrypting per-org secrets (LLM/SMTP) | **required**; generate once, keep stable (rotating it makes stored secrets undecryptable). `python -c "import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"` |
+| `DASH_ADMIN_EMAIL` / `DASH_ADMIN_PASSWORD` | bootstrap the first owner/admin | set once for a fresh deploy; idempotent — ignored if any user exists |
+| `DASH_DATABASE_URL` | Postgres DSN | defaults wired for the bundled `ca-postgres`; override for an external DB |
+| `DASH_BASE_URL` | external base URL | needed for embed/SDK + CORS + channel webhooks in prod |
+| `ENVIRONMENT` | `development` \| `production` | compose sets `production` |
+
+The **OpenRouter LLM key is NOT an env var** — it is entered from the UI (Settings → Models) and stored encrypted per-org.
 
 > **Landmine:** a compose `${VAR:-default}` beats the in-app registry default. If a setting won't take, check the compose env first.
+
+---
+
+## Upgrade (existing deploy → new version)
+
+Schema migrations + the front-end bundle are baked into the image and applied on boot, so an upgrade is a rebuild:
+
+```bash
+cd /opt/rahulai-dash          # your checkout
+git pull                      # get the new code
+docker compose up -d --build  # rebuild + recreate (runs `alembic upgrade head` on start)
+docker compose logs -f ca-app # watch boot: migrations + "Loaded N hybrid flag override(s)"
+```
+
+Notes:
+- **Migrations run automatically** in `start.sh` (`alembic upgrade head`, with retries) before uvicorn — no manual step. Current head: `agentchan1`.
+- **Back up Postgres first** on a real deploy: `docker exec ca-postgres pg_dump -U dash dash > backup_$(date +%F).sql`.
+- **Keep `DASH_ENCRYPTION_KEY` unchanged** across upgrades — a new key orphans every stored OpenRouter/SMTP secret.
+- **New feature flags default OFF.** Enable per-org from **Settings → Upgrades** (or the org's `hybrid_overrides`), then restart. See [Feature flags](#feature-flags).
+- **Roll back:** check out the previous tag/commit and `docker compose up -d --build` again. Alembic downgrades are not guaranteed — restore the DB dump if a migration must be reversed.
 
 ---
 
@@ -188,7 +242,7 @@ A smart agent can be exported as a **Template** — its data-agnostic know-how (
 
 The frontend is an installable PWA. In Chrome/Edge, open the app and click **Install app** in the top bar (left of the 🔔 bell) or the ⊕ in the address bar — it installs to the dock/start menu as a standalone window with an offline shell. The service worker precaches the app shell but **never caches `/api` or `/ws`** (always live data/auth). Built automatically by `@vite-pwa/nuxt` during `nuxt generate` (`sw.js` + `manifest.webmanifest`).
 
-> **Prod requires HTTPS** for install + the service worker (set `PUBLIC_URL` to an https origin behind TLS); `http://localhost:3007` is exempt for testing. iOS uses Share → Add to Home Screen (no programmatic prompt).
+> **Prod requires HTTPS** for install + the service worker (set `base_url` in `dash-config.yaml` to an https origin behind TLS); `http://localhost:3007` is exempt for testing. iOS uses Share → Add to Home Screen (no programmatic prompt).
 
 ### Folder Sync — auto-ingest a local folder ("like Claude Code")
 
@@ -235,7 +289,9 @@ For stability, **Skills (heavy sandbox exec) / sub-agents / MCP are OFF by defau
 | Symptom | Cause / fix |
 |---|---|
 | `{"status":"ok"}` not returned | container still booting; `docker logs ca-app` and re-check `/health` |
-| Chat/training errors immediately | no LLM provider — run `seed_openrouter.py` or set `OPENROUTER_API_KEY` |
+| Chat/training errors immediately (401) | no OpenRouter key yet — paste it in **Settings → Models** (the provider is auto-seeded; the key is stored encrypted per-org, not in `.env`) |
+| `cityagent-base:dev pull access denied` on build | old/stale build invocation — the base is now folded into the Dockerfile; just `docker compose up -d --build` (or `bash deploy.sh`) |
+| Hot-copy to `ca-app:/app/frontend/dist` → Permission denied | `dist` is root-owned — use `docker exec -u 0 ca-app` for the `rm`/`mkdir`, copy, then `chown -R app:app /app/frontend/dist` |
 | Auto-train bar "stuck" early | profiling a large connector takes minutes; the bar now moves per table — watch `docker logs -f ca-app 2>&1 \| grep "\[profile\]"` |
 | FE change didn't show | you skipped the bake — `docker cp .output/public/. ca-app:/app/frontend/dist` then `docker commit` |
 | FE change vanished after restart | a `--force-recreate` wiped the hot-copy; rebuild + re-bake |

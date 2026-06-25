@@ -59,6 +59,8 @@ from sqlalchemy import select, update, func, delete
 from sqlalchemy.orm import selectinload
 
 from fastapi import BackgroundTasks, HTTPException
+from app.models.studio import Studio  # HYBRID_AGENT_ACL: per-agent model override lookup
+from app.settings.hybrid_flags import flags  # HYBRID_AGENT_ACL gate
 from app.core.telemetry import telemetry
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
@@ -471,6 +473,13 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
 
+            # HYBRID_AGENT_ACL: enforce per-agent access at chat time (flag-gated, default OFF)
+            if flags.AGENT_ACL and getattr(report, "studio_id", None):
+                from app.services.studio_access import resolve_studio_access
+                _role = await resolve_studio_access(db, str(report.studio_id), current_user)
+                if _role is None:
+                    raise HTTPException(status_code=403, detail="You do not have access to this agent.")
+
             # Validate widget if provided
             if completion_data.prompt and completion_data.prompt.widget_id:
                 result = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
@@ -492,11 +501,23 @@ class CompletionService:
             span.add_event("validation_done")
 
             # Get default model - this is critical
-
+            # HYBRID_AGENT_ACL: precedence: explicit request > studio per-agent config > org default (flag-gated, default OFF)
             if completion_data.prompt and completion_data.prompt.model_id:
                 model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
             else:
-                model = await organization.get_default_llm_model(db)
+                model = None
+                if flags.AGENT_ACL and getattr(report, "studio_id", None):
+                    _studio_res = await db.execute(select(Studio).filter(Studio.id == report.studio_id))
+                    _studio = _studio_res.scalar_one_or_none()
+                    _cfg = (_studio.config or {}) if _studio else {}
+                    _mid = _cfg.get("model_id") if isinstance(_cfg, dict) else None
+                    if _mid:
+                        try:
+                            model = await self.llm_service.get_model_by_id(db, organization, current_user, _mid)
+                        except Exception:
+                            model = None
+                if model is None:
+                    model = await organization.get_default_llm_model(db)
 
             small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
 
@@ -1852,6 +1873,13 @@ class CompletionService:
                 raise HTTPException(status_code=404, detail="Report not found")
             _log("report_fetched")
 
+            # HYBRID_AGENT_ACL: enforce per-agent access at chat time (flag-gated, default OFF)
+            if flags.AGENT_ACL and getattr(report, "studio_id", None):
+                from app.services.studio_access import resolve_studio_access
+                _role = await resolve_studio_access(db, str(report.studio_id), current_user)
+                if _role is None:
+                    raise HTTPException(status_code=403, detail="You do not have access to this agent.")
+
             # Validate widget if provided
             if completion_data.prompt.widget_id:
                 result = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
@@ -1874,10 +1902,23 @@ class CompletionService:
             _log("validation_done")
 
             # Get default model
+            # HYBRID_AGENT_ACL: precedence: explicit request > studio per-agent config > org default (flag-gated, default OFF)
             if completion_data.prompt and completion_data.prompt.model_id:
                 model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
             else:
-                model = await organization.get_default_llm_model(db)
+                model = None
+                if flags.AGENT_ACL and getattr(report, "studio_id", None):
+                    _studio_res = await db.execute(select(Studio).filter(Studio.id == report.studio_id))
+                    _studio = _studio_res.scalar_one_or_none()
+                    _cfg = (_studio.config or {}) if _studio else {}
+                    _mid = _cfg.get("model_id") if isinstance(_cfg, dict) else None
+                    if _mid:
+                        try:
+                            model = await self.llm_service.get_model_by_id(db, organization, current_user, _mid)
+                        except Exception:
+                            model = None
+                if model is None:
+                    model = await organization.get_default_llm_model(db)
 
             if not model:
                 raise HTTPException(

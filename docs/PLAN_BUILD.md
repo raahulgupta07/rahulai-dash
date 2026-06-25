@@ -1,5 +1,12 @@
 # PLAN — Faster Rebuilds, Keep All Features  ✅ DONE (2026-06-19)
 
+> **⚠️ SUPERSEDED by v1.11.0 (2026-06-25):** the external `cityagent-base:dev` image described
+> below is now folded INTO the main `Dockerfile` as an internal `AS base` stage, so a clean machine
+> can `docker compose up -d --build` with no pre-step (fixes "cityagent-base:dev pull access denied"
+> on fresh prod boxes). `Dockerfile.base` + `scripts/build.sh` are kept only as an optional fast-dev
+> path. See README "Deploy (one command)" + `deploy.sh`. The plan below is the historical record of
+> the original split-base refactor.
+
 ## RESULTS (verified live)
 - Baseline: app image 6.42GB, full build ~20min (~1200s).
 - After refactor: `cityagent-base:dev` 1.31GB (built once) + app `cityagent-analytics:dev` 6.33GB.
