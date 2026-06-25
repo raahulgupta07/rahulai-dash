@@ -4,6 +4,11 @@ Hybrid feature changelog (our additions on top of the bagofwords/Dash base). New
 Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` followed by `-` feature bullets.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.5.1 — Folder Sync: working download buttons  (2026-06-25)
+- The macOS / Windows / Linux buttons now actually download the sync app (a small Python program) as a zip
+- Each download includes an INSTALL.txt with the exact setup commands for that OS
+- (Signed native installers still to come — for now: pip install + python sync_agent.py)
+
 ## v1.5.0 — Folder Sync: a local folder, like Claude Code  (2026-06-25)
 - Desktop sync app: point it at a folder and new/changed Excel & CSV files become data agents automatically — no clicks
 - Per-agent binding: a folder syncs into a specific agent; the tray app picks which one

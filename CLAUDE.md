@@ -351,8 +351,15 @@ push delta-upserts into a per-agent DataSource. Flag `HYBRID_FOLDER_SYNC` (defau
 - **Desktop agent** (standalone, NOT in image, NOT deployed): `folder-sync-agent/` — `sync_agent.py`
   (stdlib + `requests`+`watchdog`; `setup`/`run`/`status`/`agents` CLI; `~/.cityagent-sync/{config,state}.json`;
   sha256 local-state delta, atomic writes; sends `X-API-Key`; debounced watcher; deletes ignored) +
-  optional `tray.py` (pystray/Pillow) + README. Download links in setup modal = placeholders (no packaged
-  binary yet — Phase 6 sign/ship pending).
+  optional `tray.py` (pystray/Pillow) + README.
+- **Download (v1.5.1, WORKING):** `GET /api/sync/download/{macos|windows|linux}` (in sync.py) — PUBLIC (no
+  auth, flag-gated only) so a plain `<a download>` works; zips the agent files in-memory + a per-OS
+  INSTALL.txt → `cityagent-folder-sync-<os>.zip`. Modal buttons (`FolderSyncSetupModal.vue` osButtons) →
+  `/api/sync/download/<os>` with `download` attr. Agent source is BAKED into the image at
+  `/app/folder-sync-agent` (via docker cp + commit); endpoint falls back to a repo-relative path.
+  **LANDMINE:** a fresh `docker build` from the Dockerfile won't include `/app/folder-sync-agent` unless the
+  Dockerfile COPYs it → download 503. Re-bake (docker cp folder-sync-agent + commit) after any rebuild, or
+  add a COPY line. No signed native installer yet (Phase 6) — zip ships the Python agent (pip + run).
 - **E2E verified live** (org 55278108, flag ON, minted key): agents 200 → new push (created ds) → same file
   →`skipped` (delta) → edited file →`updated` (same ds reused, same-schema merge) → bind to CRM studio →
   StudioDataSource link created + `studio_id` returned → status grouped by machine. Test rows cleaned.
@@ -370,7 +377,7 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
 **Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `hybrid-brain`,
-mig head **`foldersync1`**, `VERSION_HYBRID`=**1.5.0**.
+mig head **`foldersync1`**, `VERSION_HYBRID`=**1.5.1**.
 Folder Sync (desktop folder auto-ingest, per-agent bind, delta upsert; flag ON org 55278108; E2E proven)
 BUILT+BAKED — desktop agent in `folder-sync-agent/` (not packaged/shipped yet).
 Agent Templates (export/gallery/bind + popup

@@ -30,12 +30,12 @@
           <p class="text-[13px] font-semibold text-[#2B2622] mt-1">Download the sync app</p>
           <p class="text-[11.5px] text-[#8A7E76] mt-0.5 mb-3">A tiny background helper that watches a folder and pushes new/changed files to your agent.</p>
           <div class="flex flex-wrap gap-2">
-            <a v-for="os in osButtons" :key="os.key" :href="os.href"
+            <a v-for="os in osButtons" :key="os.key" :href="os.href" download
                class="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#2B2622] bg-white border border-[#E8C9B5] rounded-lg px-3 py-1.5 hover:bg-[#F4E5DA] transition-colors">
               <UIcon :name="os.icon" class="w-3.5 h-3.5 text-[#C2683F]" /> {{ os.label }}
             </a>
           </div>
-          <p class="text-[10.5px] text-[#8A7E76] mt-2">Desktop sync app — download links coming with release.</p>
+          <p class="text-[10.5px] text-[#8A7E76] mt-2">Downloads the Python sync app (+ INSTALL.txt). Run <span class="font-mono">python sync_agent.py setup</span> then <span class="font-mono">run</span>.</p>
         </div>
 
         <!-- STEP 2 · KEY -->
@@ -125,9 +125,9 @@ const isOpen = computed({
 function close() { emit('update:open', false) }
 
 const osButtons = [
-  { key: 'mac', label: 'macOS', icon: 'i-heroicons-computer-desktop', href: '#' },
-  { key: 'win', label: 'Windows', icon: 'i-heroicons-rectangle-group', href: '#' },
-  { key: 'linux', label: 'Linux', icon: 'i-heroicons-command-line', href: '#' },
+  { key: 'mac', label: 'macOS', icon: 'i-heroicons-computer-desktop', href: '/api/sync/download/macos' },
+  { key: 'win', label: 'Windows', icon: 'i-heroicons-rectangle-group', href: '/api/sync/download/windows' },
+  { key: 'linux', label: 'Linux', icon: 'i-heroicons-command-line', href: '/api/sync/download/linux' },
 ]
 
 // ---- key generation ----

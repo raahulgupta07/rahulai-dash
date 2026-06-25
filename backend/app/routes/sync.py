@@ -21,11 +21,15 @@ include time (mirrors data_source_from_file). So ``/sync/file`` becomes
 ``/api/sync/file``.
 """
 
+import io
 import logging
+import os
+import zipfile
 from datetime import datetime
 from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -405,3 +409,96 @@ async def sync_key(
         "prefix": created.key_prefix,
         "server_url": str(request.base_url).rstrip("/"),
     }
+
+
+# ── Desktop agent download ───────────────────────────────────────────────
+# The agent source is baked into the image at one of these locations. We zip it
+# on the fly and add a per-OS INSTALL.txt. No signed native binary yet — this
+# ships the (small, stdlib+2-dep) Python agent so the buttons actually work.
+_AGENT_DIR_CANDIDATES = (
+    "/app/folder-sync-agent",
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "folder-sync-agent"),
+)
+_AGENT_FILES = ("sync_agent.py", "tray.py", "requirements.txt", "README.md")
+
+_INSTALL_TXT = {
+    "macos": (
+        "CityAgent Folder Sync — macOS\n"
+        "=============================\n\n"
+        "1. Install Python 3.10+ (https://www.python.org/downloads/ or `brew install python`).\n"
+        "2. In Terminal, cd into this folder, then:\n"
+        "     python3 -m pip install -r requirements.txt\n"
+        "     python3 sync_agent.py setup     # paste your sync key + server URL\n"
+        "     python3 sync_agent.py run       # starts watching your folder\n\n"
+        "Optional menu-bar tray:  python3 tray.py\n"
+        "List your agents to bind: python3 sync_agent.py agents\n"
+    ),
+    "windows": (
+        "CityAgent Folder Sync — Windows\r\n"
+        "===============================\r\n\r\n"
+        "1. Install Python 3.10+ (https://www.python.org/downloads/ — tick 'Add to PATH').\r\n"
+        "2. In PowerShell, cd into this folder, then:\r\n"
+        "     py -m pip install -r requirements.txt\r\n"
+        "     py sync_agent.py setup     # paste your sync key + server URL\r\n"
+        "     py sync_agent.py run       # starts watching your folder\r\n\r\n"
+        "Optional system tray:  py tray.py\r\n"
+        "List your agents to bind: py sync_agent.py agents\r\n"
+    ),
+    "linux": (
+        "CityAgent Folder Sync — Linux\n"
+        "=============================\n\n"
+        "1. Ensure Python 3.10+ (`sudo apt install python3 python3-pip`).\n"
+        "2. cd into this folder, then:\n"
+        "     python3 -m pip install -r requirements.txt\n"
+        "     python3 sync_agent.py setup     # paste your sync key + server URL\n"
+        "     python3 sync_agent.py run       # starts watching your folder\n\n"
+        "Optional tray (needs a desktop env):  python3 tray.py\n"
+        "List your agents to bind: python3 sync_agent.py agents\n"
+    ),
+}
+
+
+def _agent_dir() -> Optional[str]:
+    for cand in _AGENT_DIR_CANDIDATES:
+        p = os.path.abspath(cand)
+        if os.path.isdir(p) and os.path.isfile(os.path.join(p, "sync_agent.py")):
+            return p
+    return None
+
+
+@router.get("/sync/download/{platform}")
+async def sync_download(platform: str):
+    """Download the desktop Folder Sync agent (a small Python program) as a zip.
+
+    Public (no auth) so a plain ``<a download>`` works — it ships only the
+    open-source agent, no secrets. ``platform`` ∈ {macos, windows, linux} just
+    selects which INSTALL.txt is bundled.
+    """
+    _require_flag()
+    plat = (platform or "").lower()
+    if plat not in _INSTALL_TXT:
+        raise HTTPException(status_code=404, detail="Unknown platform")
+
+    src = _agent_dir()
+    if not src:
+        raise HTTPException(
+            status_code=503,
+            detail="Sync app is not bundled on this server yet.",
+        )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name in _AGENT_FILES:
+            fp = os.path.join(src, name)
+            if os.path.isfile(fp):
+                z.write(fp, arcname=f"cityagent-folder-sync/{name}")
+        z.writestr("cityagent-folder-sync/INSTALL.txt", _INSTALL_TXT[plat])
+
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="cityagent-folder-sync-{plat}.zip"'
+        },
+    )
