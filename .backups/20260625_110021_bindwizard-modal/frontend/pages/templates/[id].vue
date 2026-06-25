@@ -168,12 +168,13 @@
       </template>
     </div>
 
-    <!-- Bind wizard popup (explicit import — avoids Nuxt path-prefix no-op) -->
+    <!-- Bind wizard (explicit import — avoids Nuxt path-prefix no-op) -->
     <BindWizard
-      v-if="tpl"
-      v-model="wizardOpen"
+      v-if="tpl && wizardOpen"
       :template-id="tpl.id"
       :template-name="tpl.name"
+      :requires-columns="requiresColumns"
+      @close="wizardOpen = false"
     />
   </div>
 </template>

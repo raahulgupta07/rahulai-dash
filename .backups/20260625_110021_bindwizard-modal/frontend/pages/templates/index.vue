@@ -119,7 +119,7 @@
             <button
               type="button"
               class="flex-none inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg bg-[#C2683F] text-white hover:bg-[#A8542F] transition-colors cursor-pointer"
-              @click.stop="openWizard(t)"
+              @click.stop="openDetail(t.id)"
             >Use template</button>
           </div>
         </div>
@@ -141,15 +141,11 @@
         </p>
       </div>
     </div>
-
-    <!-- Use-template popup journey -->
-    <BindWizard v-model="wizardOpen" :template-id="wizardTemplateId" :template-name="wizardName" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { useMyFetch } from '~/composables/useMyFetch'
-import BindWizard from '~/components/templates/BindWizard.vue'
 
 const scopes = [
   { value: 'org', label: 'Org' },
@@ -176,16 +172,6 @@ function setScope(v: string) {
 
 function openDetail(id: string) {
   navigateTo(`/templates/${id}`)
-}
-
-// Use-template popup
-const wizardOpen = ref(false)
-const wizardTemplateId = ref('')
-const wizardName = ref('')
-function openWizard(t: any) {
-  wizardTemplateId.value = t.id
-  wizardName.value = t.name || ''
-  wizardOpen.value = true
 }
 
 async function loadTemplates() {

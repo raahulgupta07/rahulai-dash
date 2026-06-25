@@ -292,6 +292,11 @@ portable versioned template; others bind it to their columns → their own agent
 - E2E verified live (org 55278108, flag ON): export CRM→template → list → publish → bind-preview →
   instantiate → new Studio created. LANDMINE: `requires_columns` empty until the source studio has
   profile_v2 (train it first); imported items always pending (review gate).
+- **v1.4.1 popup journey:** `BindWizard.vue` = MODAL (v-model) from gallery card, 5 steps
+  Preview→Data→Map→Review→Build (Map auto-skipped unless existing-source+requires). Step 2 = 3-way
+  (existing / connect-upload / **skip**). `instantiate` route ALLOWS empty data_source_ids (skip =
+  agent now, placeholders intact, bind later). Gallery "Use template"→openWizard (in place);
+  card click→detail.
 
 ## PWA — installable desktop/mobile app (2026-06-25, BAKED)
 App installs from the browser (standalone window, dock icon, offline shell). Module `@vite-pwa/nuxt`.

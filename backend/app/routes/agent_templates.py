@@ -249,8 +249,11 @@ async def instantiate(
         name = (payload or {}).get("name") or "New agent"
         data_source_ids = (payload or {}).get("data_source_ids") or []
         column_map = (payload or {}).get("column_map") or {}
-        if not isinstance(data_source_ids, list) or not data_source_ids:
-            return {"ok": False, "error": "data_source_ids required", "studio_id": None}
+        if not isinstance(data_source_ids, list):
+            data_source_ids = []
+        # Empty data_source_ids is allowed = "skip data" mode: the agent is created
+        # with the playbook (rules/examples/skills pending), placeholders left intact,
+        # no metrics + no data link, to be bound later when the user adds data.
         studio = await run_instantiate(
             db, template_id=template_id, data_source_ids=data_source_ids,
             column_map=column_map, name=name, owner_user=current_user, organization=organization,

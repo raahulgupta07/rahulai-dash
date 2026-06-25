@@ -4,6 +4,11 @@ Hybrid feature changelog (our additions on top of the bagofwords/Dash base). New
 Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` followed by `-` feature bullets.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.4.1 — Smoother "Use template" journey  (2026-06-25)
+- Use template now opens a guided popup (preview → data → map → review → build) instead of a page jump
+- Three ways to add data: use an existing source, connect/upload new, or skip and add it later
+- Skip builds the agent with the playbook now; bind columns when your data arrives
+
 ## v1.4.0 — Agent Templates: share an agent's best practices  (2026-06-25)
 - Export a smart agent as a portable, versioned Template — rules, metric formulas, example patterns, skills and persona, with data and credentials stripped
 - Template Gallery: browse Org and Global templates and reuse them

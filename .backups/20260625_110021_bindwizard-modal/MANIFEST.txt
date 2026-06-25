@@ -1,0 +1,5 @@
+# backup 20260625_110021 label=bindwizard-modal
+# root: /Users/rahulgupta/Desktop/CityAI-Final-Project/CityAgent/CityAgent-Data/CityAgent Analytics
+OK       frontend/components/templates/BindWizard.vue
+OK       frontend/pages/templates/index.vue
+OK       frontend/pages/templates/[id].vue

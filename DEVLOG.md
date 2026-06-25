@@ -882,3 +882,12 @@ Export a smart Studio's data-agnostic know-how as a portable, versioned template
 - **FE:** nav **Templates** in Studios group (`nav/TopNav.vue`); `pages/templates/index.vue` (gallery, org/global toggle, search, cards) + `pages/templates/[id].vue` (detail + publish + wizard host) + `components/templates/BindWizard.vue` (4-step: pick data → map columns w/ auto-match badges → review → build). **Export as Template** button in studio header (`studios/[id]/index.vue`, gated canEdit + flag). Backups `.backups/*_agent-templates-wire`.
 - **E2E verified** (org 55278108, flag ON, 13 overrides): export CRM studio → template v1.0.0 → list → publish → bind-preview → instantiate → new Studio "CRM from template" in DB. All 8 routes registered (import main).
 - **LANDMINES:** new flag needs @property + UPGRADE_FLAGS + snapshot (done); `requires_columns` empty until source studio has profile_v2 (train first); imported items ALWAYS pending (review gate); MetricDefinition needs non-null data_source_id (only seeded when ≥1 ds given); StudioExample.answer NOT-NULL (filled with method).
+
+## 2026-06-25 — Agent Templates: popup journey + skip-data (v1.4.1)
+
+UX upgrade to the template "Use" flow + a no-data path.
+- `BindWizard.vue` rebuilt as a **modal popup** (v-model) launched from the gallery card — no page nav. 5 steps: Preview → Data → Map → Review → Build (Map auto-skipped unless binding an existing source with required columns). Stepper, per-step CTA, success screen → Open agent.
+- **Step 2 is 3-way**: Use existing source (auto-match + map) · Connect/upload new · **Skip for now**. Skip/connect create the agent with empty data_source_ids.
+- Backend: `instantiate` route now **allows empty data_source_ids** (skip mode) — binder already no-ops metrics/auto-match when no ds; seeds rules/examples/skills pending with placeholders intact, to bind later when data is added.
+- `pages/templates/index.vue` "Use template" → opens modal in place (`openWizard`); card click still → detail. `[id].vue` mounts wizard via v-model.
+- Verified: skip-mode instantiate live → agent "Skip-mode agent" created with no data. FE baked. Backups `.backups/*_bindwizard-modal`.
