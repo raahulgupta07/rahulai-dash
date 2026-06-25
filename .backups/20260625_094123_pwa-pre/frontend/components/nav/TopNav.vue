@@ -160,9 +160,6 @@
           <UIcon v-else name="heroicons-plus" class="w-5 h-5" />
         </button>
 
-        <!-- Install as desktop app (PWA) — only shows when installable -->
-        <InstallApp />
-
         <!-- What's new (changelog) — bell before profile -->
         <WhatsNew class="hidden sm:block" />
 
@@ -320,7 +317,6 @@
   import McpModal from '~/components/McpModal.vue'
   import AgentSelector from '~/components/AgentSelector.vue'
   import WhatsNew from '~/components/nav/WhatsNew.vue'
-  import InstallApp from '~/components/nav/InstallApp.vue'
   import { useCan } from '~/composables/usePermissions'
 
   // ---- Composables (self-contained: TopNav reads its own state, no props) ----

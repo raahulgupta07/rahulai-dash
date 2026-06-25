@@ -1,0 +1,5 @@
+Restore a single file:
+  cp -a ".backups/20260625_094123_pwa-pre/<relpath>" "<relpath>"
+Restore everything in this snapshot:
+  (cd ".backups/20260625_094123_pwa-pre" && find . -type f ! -name MANIFEST.txt ! -name RESTORE.txt -print0 | \
+     while IFS= read -r -d '' f; do mkdir -p "/Users/rahulgupta/Desktop/CityAI-Final-Project/CityAgent/CityAgent-Data/CityAgent Analytics/$(dirname "${f#./}")"; cp -a "$f" "/Users/rahulgupta/Desktop/CityAI-Final-Project/CityAgent/CityAgent-Data/CityAgent Analytics/${f#./}"; done)

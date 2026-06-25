@@ -18,17 +18,6 @@ export default defineNuxtConfig({
   app: {
     pageTransition: false,
     layoutTransition: false,
-    head: {
-      meta: [
-        { name: 'theme-color', content: '#C2683F' },
-        { name: 'apple-mobile-web-app-capable', content: 'yes' },
-        { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
-        { name: 'apple-mobile-web-app-title', content: 'CityAgent' },
-      ],
-      link: [
-        { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
-      ],
-    },
   },
 
   modules: [
@@ -38,54 +27,8 @@ export default defineNuxtConfig({
     '@nuxtjs/mdc',
     '@nuxt-alt/proxy',
     'nuxt-echarts',
-    'nuxt-monaco-editor',
-    '@vite-pwa/nuxt'
+    'nuxt-monaco-editor'
   ],
-
-  // Installable PWA (Add to Home Screen / desktop install). SPA shell precached;
-  // API is NEVER cached (NetworkOnly) so data + auth stay live.
-  pwa: {
-    registerType: 'autoUpdate',
-    manifest: {
-      name: 'CityAgent Analytics',
-      short_name: 'CityAgent',
-      description: 'Agentic analytics — grounded studios, dashboards and insights over your data.',
-      lang: 'en',
-      display: 'standalone',
-      start_url: '/',
-      scope: '/',
-      background_color: '#ffffff',
-      theme_color: '#C2683F',
-      icons: [
-        { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-        { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-        { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-      ],
-    },
-    workbox: {
-      navigateFallback: '/',
-      globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
-      // Don't precache the giant editor/codegen blobs (Monaco TS worker ~9MB, babel ~3MB):
-      // they're lazy-loaded only in the SQL/code editor and would bloat the install.
-      globIgnores: [
-        '**/nuxt-monaco-editor/**',
-        '**/ts.worker-*.js',
-        '**/libs/babel-standalone.min.js',
-        '**/assets/cityagent-dash-logo.png',
-      ],
-      maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-      runtimeCaching: [
-        // NEVER cache the API / auth / websocket — always hit network (no stale data, no token bugs).
-        { urlPattern: ({ url }: any) => url.pathname.startsWith('/api') || url.pathname.startsWith('/ws'),
-          handler: 'NetworkOnly' },
-        // App-shell static assets: cache-first.
-        { urlPattern: ({ url }: any) => url.pathname.startsWith('/_nuxt/'),
-          handler: 'CacheFirst', options: { cacheName: 'nuxt-assets' } },
-      ],
-    },
-    client: { installPrompt: true },
-    devOptions: { enabled: false },
-  },
 
   echarts: {
     charts: [

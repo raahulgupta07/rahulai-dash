@@ -72,6 +72,7 @@
     "@playwright/test": "1.55.1",
     "@sidebase/nuxt-auth": "0.9.3",
     "@types/diff-match-patch": "^1.0.36",
+    "@vite-pwa/nuxt": "^1.1.1",
     "highlight.js": "^11.11.1",
     "http-proxy": "^1.18.1",
     "nuxt-3-intercom": "^1.1.2",

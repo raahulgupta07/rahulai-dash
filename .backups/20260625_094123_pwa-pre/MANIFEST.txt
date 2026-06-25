@@ -1,0 +1,4 @@
+# backup 20260625_094123 label=pwa-pre
+# root: /Users/rahulgupta/Desktop/CityAI-Final-Project/CityAgent/CityAgent-Data/CityAgent Analytics
+OK       frontend/nuxt.config.ts
+OK       frontend/components/nav/TopNav.vue
