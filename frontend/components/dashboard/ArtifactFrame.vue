@@ -327,12 +327,16 @@
             :artifact-id="selectedArtifact.id"
             class="absolute inset-2 sm:inset-4 rounded-lg overflow-hidden bg-white shadow-2xl"
           />
-          <!-- Other artifacts use iframe -->
+          <!-- Other artifacts use iframe. This is a SECOND iframe instance, so
+               it must receive its own ARTIFACT_DATA — sendDataToIframe() posts
+               to both this and the background iframe (else charts stay blank). -->
           <iframe
             v-else-if="iframeSrcdoc"
+            ref="fullscreenIframeRef"
             :srcdoc="iframeSrcdoc"
             sandbox="allow-scripts allow-same-origin"
             class="absolute inset-2 sm:inset-4 w-auto h-auto border-0 rounded-lg bg-white shadow-2xl"
+            @load="onFullscreenIframeLoad"
           />
         </div>
       </div>
@@ -688,6 +692,9 @@ async function exportPptx() {
 }
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+// Second iframe used by the true-fullscreen overlay. It's a distinct instance
+// from iframeRef, so it needs its own ARTIFACT_DATA postMessage.
+const fullscreenIframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
 const iframeReady = ref(false);
@@ -963,28 +970,45 @@ function handleIframeMessage(event: MessageEvent) {
   }
 }
 
-// Send data to iframe via postMessage
+// Send data to iframe(s) via postMessage. There can be TWO live iframe
+// instances at once: the background one (iframeRef) and the fullscreen overlay
+// one (fullscreenIframeRef). Both must receive ARTIFACT_DATA or the one that
+// missed it renders its static chrome with empty/blank charts.
 function sendDataToIframe() {
-  if (!iframeRef.value?.contentWindow || !iframeReady.value) return;
+  if (!iframeReady.value) return;
+
+  const wins = [iframeRef.value?.contentWindow, fullscreenIframeRef.value?.contentWindow]
+    .filter((w): w is Window => !!w);
+  if (!wins.length) return;
 
   const payload = JSON.parse(JSON.stringify({
     report: toRaw(reportData.value),
     visualizations: toRaw(visualizationsData.value)
   }));
 
-  try {
-    iframeRef.value.contentWindow.postMessage({
-      type: 'ARTIFACT_DATA',
-      payload
-    }, window.location.origin);
-  } catch (err: any) {
-    console.error('[ArtifactFrame] Failed to send data to iframe:', err);
-    iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
+  let sent = 0;
+  for (const win of wins) {
+    try {
+      win.postMessage({ type: 'ARTIFACT_DATA', payload }, window.location.origin);
+      sent++;
+    } catch (err: any) {
+      console.error('[ArtifactFrame] Failed to send data to an iframe:', err);
+    }
+  }
+  if (!sent) {
+    iframeError.value = 'Failed to send data to dashboard iframe';
     return;
   }
 
   dataReady.value = true;
-  console.log('[ArtifactFrame] Data sent to iframe:', visualizationsData.value.length, 'visualizations');
+  console.log('[ArtifactFrame] Data sent to', sent, 'iframe(s):', visualizationsData.value.length, 'visualizations');
+}
+
+// Fullscreen overlay iframe finished loading its srcdoc. Its inner script also
+// posts ARTIFACT_READY, but push data here too as a belt-and-suspenders so the
+// fullscreen deck never shows blank charts if the message ordering races.
+function onFullscreenIframeLoad() {
+  if (iframeReady.value) sendDataToIframe();
 }
 
 // Fetch visualization data for the report (optionally filtered by artifact)
