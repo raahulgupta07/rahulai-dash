@@ -98,6 +98,7 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_SEMANTIC_SEARCH": {"label": "Hybrid Search + KG", "role": "agent"},
     "HYBRID_CODE_ENRICH": {"label": "Code Enrich (pipeline logic)", "role": "agent"},
     "HYBRID_AGENT_TEMPLATES": {"label": "Agent Templates (share best practices)", "role": "user"},
+    "HYBRID_FOLDER_SYNC": {"label": "Folder Sync (desktop auto-ingest)", "role": "user"},
 }
 
 
@@ -569,6 +570,14 @@ class HybridFlags:
         # others bind to their own columns. Export/Gallery/bind. Default OFF.
         return _bool("HYBRID_AGENT_TEMPLATES")
 
+    @property
+    def FOLDER_SYNC(self) -> bool:
+        # Desktop Folder Sync agent: a local tray app watches a folder and pushes
+        # changed Excel/CSV files (API-key authed) to /api/sync/file, which delta-
+        # upserts them into a per-agent DataSource. Like Claude Code for data.
+        # Default OFF.
+        return _bool("HYBRID_FOLDER_SYNC")
+
     def snapshot(self) -> dict[str, bool]:
         """All flags as a dict (for /health, debugging, tests)."""
         return {
@@ -617,6 +626,7 @@ class HybridFlags:
             "SEMANTIC_SEARCH": self.SEMANTIC_SEARCH,
             "CODE_ENRICH": self.CODE_ENRICH,
             "AGENT_TEMPLATES": self.AGENT_TEMPLATES,
+            "FOLDER_SYNC": self.FOLDER_SYNC,
         }
 
 

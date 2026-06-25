@@ -114,6 +114,7 @@ from app.models.usage_policy import (
 )
 from app.models.knowledge_search_index import KnowledgeSearchIndex  # hybrid P8 search scaffold
 from app.models.agent_template import AgentTemplate  # hybrid Agent Templates
+from app.models.folder_sync import FolderSyncState  # hybrid Folder Sync
 
 from app.settings.config import settings
 

@@ -209,8 +209,8 @@
                             <!-- STEP 1 · ADD -->
                             <div class="relative mt-4 border border-[#E7E5DD] rounded-2xl bg-white p-4">
                                 <span class="absolute -top-2.5 left-4 bg-[#2B2A26] text-white text-[9.5px] font-semibold px-2.5 py-0.5 rounded-full tracking-wide">1 · ADD</span>
-                                <p class="text-xs text-[#6b6b6b] mt-1 mb-3">Two ways in — attach a source, or upload a file:</p>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <p class="text-xs text-[#6b6b6b] mt-1 mb-3">Three ways in — attach a source, upload a file, or sync a folder:</p>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     <!-- Add a source = pick from org library OR + New (merges old Connect + Pin) -->
                                     <button type="button" :disabled="!canEdit" class="text-left border border-[#E7E5DD] rounded-xl p-3 bg-gradient-to-b from-white to-[#fdfcf9] hover:border-[#2F6F4F] transition-colors disabled:opacity-50 flex flex-col min-h-[120px]" @click="openAddPicker">
                                         <span class="w-8 h-8 rounded-lg bg-[#E7F1EB] flex items-center justify-center mb-2"><UIcon name="i-heroicons-circle-stack" class="w-4 h-4 text-[#2F6F4F]" /></span>
@@ -229,6 +229,13 @@
                                             <span class="text-[10px] border border-[#E7E5DD] rounded-full px-1.5 py-0.5 text-[#6b6b6b]">.pdf</span>
                                             <span class="text-[10px] border border-[#E7E5DD] rounded-full px-1.5 py-0.5 text-[#6b6b6b]">.docx</span>
                                         </span>
+                                    </button>
+                                    <!-- Sync a folder = desktop helper auto-ingests a local folder (flag HYBRID_FOLDER_SYNC) -->
+                                    <button type="button" :disabled="!canEdit" class="text-left border border-[#E7E5DD] rounded-xl p-3 bg-gradient-to-b from-white to-[#fdfcf9] hover:border-[#C2683F] transition-colors disabled:opacity-50 flex flex-col min-h-[120px]" @click="openFolderSync">
+                                        <span class="w-8 h-8 rounded-lg bg-[#F4E5DA] flex items-center justify-center mb-2 text-[#C2683F] text-base">⟳</span>
+                                        <span class="text-[13px] font-semibold text-[#1f2328]">Sync a folder <span class="text-[#C2683F]">⟳</span></span>
+                                        <span class="text-[11px] text-[#6b6b6b] mt-0.5">auto-ingest a local folder. A tiny desktop helper watches a folder and pushes new &amp; changed files into this agent — like Claude Code.</span>
+                                        <span class="mt-auto pt-2 text-[10px] text-[#9a958c]">Set up folder sync →</span>
                                     </button>
                                 </div>
 
@@ -790,6 +797,11 @@
                                 </template>
                             </div>
 
+                            <!-- FOLDER SYNC — auto-ingest a local folder into this agent (flag-gated, self-hides on 404) -->
+                            <div class="mt-3">
+                                <FolderSyncCard :studio-id="studioId" :studio-name="studio.name" />
+                            </div>
+
                             <!-- doc loading hint (docs render per-source above) -->
                             <div v-if="loadingDocs && sources.length" class="flex items-center justify-center py-4 text-[#9a958c]">
                                 <Spinner class="h-4 w-4" /><span class="ms-2 text-xs">{{ $t('common.loading') }}</span>
@@ -1320,6 +1332,13 @@
                     </div>
                 </div>
             </UModal>
+
+            <!-- Folder Sync setup modal (download → key → folder), this studio pre-selected -->
+            <FolderSyncSetupModal
+                v-model:open="showFolderSync"
+                :target-studio-id="studioId"
+                :target-studio-name="studio.name"
+            />
     </div>
 </template>
 
@@ -1340,6 +1359,8 @@ import StudioTeach from '~/components/studio/StudioTeach.vue'
 import StudioSkills from '~/components/studio/StudioSkills.vue'
 import StudioMonitoring from '~/components/studio/StudioMonitoring.vue'
 import StudioIntelligence from '~/components/studio/StudioIntelligence.vue'
+import FolderSyncCard from '~/components/studio/FolderSyncCard.vue'
+import FolderSyncSetupModal from '~/components/sync/FolderSyncSetupModal.vue'
 
 definePageMeta({ auth: true, layout: 'default' })
 
@@ -2243,6 +2264,10 @@ const pinSource = async (agent: any) => {
 }
 
 const openUploadSource = () => { showUploadSource.value = true }
+
+// Folder Sync setup modal (this studio pre-selected as the sync target).
+const showFolderSync = ref(false)
+const openFolderSync = () => { showFolderSync.value = true }
 
 // Auto-pilot "Connect a source": load the 46 connector types (drop file types —
 // those go through Upload), filter/slice for the grid, then connect → auto-pin.

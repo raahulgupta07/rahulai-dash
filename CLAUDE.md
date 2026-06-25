@@ -321,6 +321,42 @@ App installs from the browser (standalone window, dock icon, offline shell). Mod
   silently don't activate. iOS = manual Share→Add to Home Screen (no programmatic prompt). Silent
   zero-click auto-install is impossible in any browser — the button is the 1-click path.
 
+## Folder Sync — local folder auto-ingest, "like Claude Code" (2026-06-25, BAKED)
+A desktop tray agent watches a local folder and pushes changed Excel/CSV files to the server; each
+push delta-upserts into a per-agent DataSource. Flag `HYBRID_FOLDER_SYNC` (default OFF; ON org 55278108).
+- **Server delta ledger** `folder_sync.py` (`FolderSyncState`: org, user, machine_label, source_path
+  [the upsert key], file_hash sha256, file_id, data_source_id, studio_id, status new|updated|skipped|error,
+  last_sync_at). Unique idx (org, source_path). Mig **`foldersync1`** off `agtmpl1`. **Head now `foldersync1`.**
+- **Route** `routes/sync.py` (paths declared w/o `/api`, included w/ `prefix="/api"` in main.py):
+  - `POST /api/sync/file` (hot path, multipart `file`+`source_path`+`sha256`+`machine_label`+`target_studio_id`):
+    unchanged hash→`skipped` (no ingest); new path→ingest+`new`; changed hash→re-ingest+`updated`. Reuses
+    `file_service.upload_file` + `create_data_source_from_file` (which already does content-hash dedup +
+    same-schema merge → edited file feeds the SAME source). Optional Studio bind via StudioDataSource.
+  - `GET /api/sync/status` (machines grouped), `GET /api/sync/agents` (org Studios for the tray dropdown),
+    `POST /api/sync/key` (mint `bow_` key, plaintext once).
+  - **Auth = `mcp_auth`** (reused from routes/mcp.py): JWT OR `X-API-Key` `bow_` key → headless agent pairs
+    with just a key. All flag-gated.
+- **LANDMINE (greenlet):** `create_data_source_from_file` commits internally → expires ALL ORM objects in
+  the session. Touching `user.id`/`organization.id`/a pre-ingest `row` after it triggers a SYNC lazy reload
+  → `MissingGreenlet`. FIX: capture `org_id`/`user_id`/`file_name` as strings up-front, and **re-query** the
+  ledger row fresh after ingest. Never touch the expired ORM objects.
+- **LANDMINE:** `StudioDataSource` has ONLY `studio_id` + `agent_id` (no `organization_id` column) —
+  passing org_id to its ctor → `TypeError invalid keyword`. Org-scope via the verified Studio instead.
+- **FE:** `components/studio/FolderSyncCard.vue` (per-agent card on Sources tab: empty→"Set up folder sync",
+  live→folder/N files/synced-ago + Manage), `components/sync/FolderSyncSetupModal.vue` (3-step: download
+  app / generate key / pick folder; `POST /sync/key`), `components/sync/FolderSyncPanel.vue` +
+  `pages/settings/folder-sync.vue` (connected machines, folder→agent map, status pills). "Add data → **Sync
+  a folder ⟳**" 3rd option in studio Auto-pilot STEP 1 (`studios/[id]/index.vue`). Settings tab in
+  `layouts/settings.vue` + `nav/TopNav.vue` Manage→Settings. All `useMyFetch` BARE paths.
+- **Desktop agent** (standalone, NOT in image, NOT deployed): `folder-sync-agent/` — `sync_agent.py`
+  (stdlib + `requests`+`watchdog`; `setup`/`run`/`status`/`agents` CLI; `~/.cityagent-sync/{config,state}.json`;
+  sha256 local-state delta, atomic writes; sends `X-API-Key`; debounced watcher; deletes ignored) +
+  optional `tray.py` (pystray/Pillow) + README. Download links in setup modal = placeholders (no packaged
+  binary yet — Phase 6 sign/ship pending).
+- **E2E verified live** (org 55278108, flag ON, minted key): agents 200 → new push (created ds) → same file
+  →`skipped` (delta) → edited file →`updated` (same ds reused, same-schema merge) → bind to CRM studio →
+  StudioDataSource link created + `studio_id` returned → status grouped by machine. Test rows cleaned.
+
 ## Changelog / "What's new" (2026-06-25, BAKED)
 Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile).
 - Source: `CHANGELOG_HYBRID.md` (repo root, `## v<semver> — <title>  (<date>)` + `-` bullets) +
@@ -334,7 +370,10 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
 **Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `hybrid-brain`,
-mig head **`agtmpl1`**, `VERSION_HYBRID`=**1.4.2**. Agent Templates (export/gallery/bind + popup
+mig head **`foldersync1`**, `VERSION_HYBRID`=**1.5.0**.
+Folder Sync (desktop folder auto-ingest, per-agent bind, delta upsert; flag ON org 55278108; E2E proven)
+BUILT+BAKED — desktop agent in `folder-sync-agent/` (not packaged/shipped yet).
+Agent Templates (export/gallery/bind + popup
 journey + Studios-page lifecycle UX) BUILT+BAKED.
 PWA (installable app + Install button) BUILT+BAKED.
 Changelog/"What's new" bell BUILT+BAKED.

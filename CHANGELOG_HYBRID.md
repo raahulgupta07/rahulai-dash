@@ -4,6 +4,14 @@ Hybrid feature changelog (our additions on top of the bagofwords/Dash base). New
 Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` followed by `-` feature bullets.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.5.0 — Folder Sync: a local folder, like Claude Code  (2026-06-25)
+- Desktop sync app: point it at a folder and new/changed Excel & CSV files become data agents automatically — no clicks
+- Per-agent binding: a folder syncs into a specific agent; the tray app picks which one
+- Smart deltas: byte-identical files are skipped, edited files replace the same agent (no duplicates), deletes are ignored
+- API-key auth: the headless agent pairs with a one-time sync key — generate it from Settings → Folder Sync or any agent's "Add data → Sync a folder"
+- Connected-machines view: see every machine, its folder→agent mappings, file counts and last sync time
+- Off by default (HYBRID_FOLDER_SYNC) — turn it on per org
+
 ## v1.4.2 — Clearer Agent Studios page  (2026-06-25)
 - One "New Agent Studio" button (removed the duplicate add card)
 - Lifecycle status on every card: Draft → Ready → Live → Idle

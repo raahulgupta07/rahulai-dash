@@ -399,6 +399,7 @@
     { name: 'ai_settings', label: 'settings.aiSettings', permission: 'manage_settings', icon: 'heroicons-sparkles' },
     { name: 'general', label: 'settings.general', permission: 'manage_settings', icon: 'heroicons-cog-6-tooth' },
     { name: 'integrations', label: 'settings.integrations.title', permission: 'manage_settings', icon: 'heroicons-squares-2x2' },
+    { name: 'folder-sync', label: 'Folder Sync', permission: 'manage_settings', icon: 'heroicons-folder-arrow-down' },
     { name: 'audit', label: 'settings.auditLogs', permission: 'view_audit_logs', icon: 'heroicons-clipboard-document-list' },
     { name: 'identity-provider', label: 'settings.identityProviderTab', permission: 'manage_identity_providers', icon: 'heroicons-finger-print' },
     { name: 'smtp', label: 'settings.smtpTab', permission: 'manage_settings', icon: 'heroicons-envelope' },
