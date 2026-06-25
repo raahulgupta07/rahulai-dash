@@ -442,12 +442,12 @@
       direct: '/studios',
       items: [
         { key: 'studios', href: '/studios', activePath: '/studios', icon: 'heroicons-film', label: 'nav.studios' },
-        { key: 'templates', href: '/templates', activePath: '/templates', icon: 'heroicons-square-3-stack-3d', label: 'Templates' },
       ],
     },
     {
       title: 'nav.workspace',
       items: [
+        { key: 'templates', href: '/templates', activePath: '/templates', icon: 'heroicons-square-3-stack-3d', label: 'Agent Templates' },
         { key: 'reports', href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
         { key: 'dashboards', href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
         { key: 'presentations', href: '/presentations', icon: 'heroicons-presentation-chart-line', label: 'nav.presentations' },
