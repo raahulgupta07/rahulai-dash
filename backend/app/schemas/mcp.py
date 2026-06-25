@@ -126,6 +126,15 @@ class MCPCreateDataOutput(BaseModel):
     data_preview: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     url: Optional[str] = Field(default=None, description="Link to view the report. Always share this with the user.")
+    insights: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description=(
+            "Proactive insights detected in the result data "
+            "(flag HYBRID_PROACTIVE_INSIGHTS). Each entry has: "
+            "kind (outlier|spike|trend), column, message, severity (high|medium|low). "
+            "Null when the flag is OFF or no signal was found."
+        ),
+    )
 
 
 # === list_instructions ===

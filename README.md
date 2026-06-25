@@ -1,56 +1,105 @@
 # CityAgent Analytics
 
-Hybrid agentic-analytics platform — a fork of bagofwords (rebranded **Dash**) on branch `hybrid-brain`, merged with dash dual-schema patterns, a Karpathy-style 2nd-brain, self-service skills, and a per-studio **Auto-train pipeline**.
+Hybrid agentic-analytics platform — a fork of **bagofwords** (rebranded **Dash**), merged with dual-schema patterns, a Karpathy-style 2nd-brain, lightweight Domain-Pack "Skills", and a per-studio **Auto-train pipeline**.
 
-FastAPI backend + Nuxt 3 SPA frontend. **OpenRouter only** for LLM. Single image `cityagent-analytics:dev`, served on `:3007`.
+An **Agent Studio** wraps a set of pinned data sources (file uploads or warehouse connectors) into a grounded, shareable analytics agent that answers questions over your data, builds dashboards + slide decks, and trains itself — no per-dataset code.
 
-> Full engineering guide + changelog: **`CLAUDE.md`** (read it before touching anything). Architecture: `docs/ARCHITECTURE.html` · Plans: `docs/PLAN_*.md`.
+- **Backend** — FastAPI (Python 3.11), async SQLAlchemy, Alembic migrations.
+- **Frontend** — Nuxt 3 SPA (baked into the image via `nuxt generate`).
+- **Data** — PostgreSQL 18 + pgvector, pgbouncer pool, Redis.
+- **LLM** — **OpenRouter only** (Dash `custom` provider, per-org Fernet-encrypted key).
+- **Image** — single `cityagent-analytics:dev`, served on `:3007`.
 
----
-
-## What it is
-
-An **Agent Studio** wraps a set of pinned data sources (file uploads or warehouse connectors) into a grounded, shareable analytics agent. The agent answers questions over your data, builds dashboards, and gets **trained automatically** — no per-dataset code.
-
-- **Agent Studios** — NotebookLM-style containers: pinned sources + persona + grounded chat + knowledge + evals + artifacts + members/sharing.
-- **AI Auto-pilot** — the studio home: a readiness score + one **Auto-train everything** button that profiles columns, learns real values, extracts knowledge from docs, mines joins, writes example queries + eval goldens, and regenerates artifacts — all in the background.
-- **Single-analyst loop** — `create_data` (writes/runs pandas+SQL) → `create_artifact` (builds the dashboard), via the AgentV2 plan/execute/reflect loop on `claude-sonnet-4.6` through OpenRouter. Skills / sub-agents / MCP are OFF by default (stability).
+> Full engineering guide + landmines: **`CLAUDE.md`** (read it before touching anything). Dated per-feature changelog: **`DEVLOG.md`**. Architecture: `docs/ARCHITECTURE.html` · Plans: `docs/PLAN_*.md`.
 
 ---
 
-## Quick start (local dev)
+## Prerequisites
+
+- **Docker** + Docker Compose v2 (Desktop or engine). All services run in containers.
+- **~8 GB RAM** free for the build (the Nuxt generate step needs headroom).
+- An **OpenRouter API key** (https://openrouter.ai) — the only LLM provider.
+- Ports free on the host: `3007` (app), `5439` (Postgres), `6432` (pgbouncer), `6399` (Redis).
+- For local frontend iteration only: **Node 20+** and `npm`.
+
+---
+
+## Install / quick start
 
 ```bash
-# one command: pre-pull base images (retry), build cityagent-base:dev once, then the app image
+# 1. clone, then from the repo root:
+cd "CityAgent Analytics"
+
+# 2. build: pre-pulls base images (with retry), builds cityagent-base:dev once,
+#    then the app image. ~5–10 min cold.
 bash scripts/build.sh
-# run (scale overlay adds Redis + pgbouncer)
+
+# 3. run (the scale overlay adds Redis + pgbouncer)
 docker compose -f docker-compose.build.yaml -f docker-compose.scale.yaml up -d
-curl localhost:3007/health
+
+# 4. verify
+curl localhost:3007/health        # -> {"status":"ok"}
 ```
 
-Ports: app `:3007` (internal 3000) · Postgres `:5439` · pgbouncer `:6432` · Redis `:6399`.
-Dev admin: `admin@cityagent.io` / `CityAgent#2026` (org "Main Org"). Seed OpenRouter via `backend/scripts/seed_openrouter.py`.
+Open **http://localhost:3007**.
 
-**Frontend is baked** (`nuxt generate`) into the image — `.vue`/config edits need a rebuild + force-recreate. Backend `.py` can be hot-iterated (`docker cp` + `py_compile` + `docker restart`).
+**Default dev login:** `admin@cityagent.io` / `CityAgent#2026` (org "Main Org").
+
+**Ports:** app `:3007` (internal 3000) · Postgres `:5439` · pgbouncer `:6432` · Redis `:6399`.
+
+### Seed the LLM provider (required)
+
+The app has no LLM until you add an OpenRouter key. Either set it in `.env` (see below) before first boot, or seed it after:
 
 ```bash
-# rebuild after a change
-docker compose -f docker-compose.build.yaml build app
-docker compose -f docker-compose.build.yaml -f docker-compose.scale.yaml up -d --force-recreate app
+docker exec ca-app python backend/scripts/seed_openrouter.py
 ```
+
+This registers the `custom` (OpenRouter) provider for the org and selects default models. Without it, chat + training will fail.
 
 ---
 
-## Onboarding a new agent (any data, any domain)
+## Configuration (`.env`)
 
-The pipeline is fully generic — proven on unrelated datasets (CRM, music catalog, financial).
+Copy `.env.example` → `.env` and set at minimum:
 
-1. **New Studio** → name + sharing (avatar/voice/summary auto-written).
-2. **Add data** → upload `.csv`/`.xlsx` (auto-pins) **or** pin a warehouse connector (46 types). A connector with N tables trains every table.
-3. **Auto-train everything** → profile · knowledge · joins · queries · evals · 6 artifacts. Readiness climbs 0→100 in the background.
-4. Done — the agent answers grounded on your data.
+| Var | What | Notes |
+|---|---|---|
+| `OPENROUTER_API_KEY` | your OpenRouter key | required for any LLM call |
+| `DASH_SECRET_KEY` | Fernet key for encrypting per-org secrets | generate once, keep stable |
+| `DATABASE_URL` | Postgres DSN | defaults wired for the bundled `ca-postgres` |
+| `PUBLIC_URL` | external base URL | needed for embed/SDK + CORS in prod |
+| `STUDIO_LEARN_DAEMON_ENABLED` | background self-learn daemon | leave `0` unless you want it |
 
-A guided wizard lives at **`/studios/new-agent`** (Name → Data → Train → Ready).
+> **Landmine:** a compose `${VAR:-default}` beats the in-app registry default. If a setting won't take, check the compose env first.
+
+---
+
+## How it works
+
+1. **New Studio** — name + sharing (avatar/voice/summary auto-written).
+2. **Add data** — open a Studio → **Auto-pilot** tab → **Add a source** (pin an org connection or create a new one across 46 connector types) **or** **Upload file** (`.csv`/`.xlsx`, multi-select supported). A connector with N tables trains every table.
+3. **Auto-train everything** — one button: profile columns → extract knowledge from docs → mine joins → write example queries + eval goldens → generate 6 artifacts. Readiness climbs 0→100 in the background.
+4. **Ask** — the agent answers grounded on your data, builds dashboards (React + ECharts) and slide decks (python-pptx).
+
+A guided wizard also lives at **`/studios/new-agent`** (Name → Data → Train → Ready).
+
+### Auto-pilot tab (the studio home)
+
+A 3-step flow on `studios/[id]` (`activeTab='autopilot'`):
+
+1. **Add** — two tiles. **Add a source** opens a popup picker of your **org connection library** (connections listed by name + host; Pin / ✓Pinned; search; **+ New connection** opens the shared 46-type connector modal → creates in the org → auto-pins). **Upload file** takes one or many spreadsheets off your machine (each becomes its own source and auto-pins).
+2. **Route** — four lanes (**Data · Knowledge · Skill · Rule/Instruction**) show what the agent is made of, drawn from the studio's real sources / docs / instructions / examples. Pasted methods or rules go through **Teach**, which classifies them into a lane with a confidence score (re-route if wrong).
+3. **Train** — one **Auto-train everything** button, disabled until ≥1 source is added.
+
+### Connector model — one source of truth
+
+**Org library = the single home for connections; an agent only references (pins) them.**
+
+- **Create** a connection (any of 46 types) → it lands in the **org registry** (credentials stored once, Fernet-encrypted). The same shared modal is reachable from **Manage → Connectors** and from a Studio's **+ New connection**.
+- **Manage** (edit / test / rotate creds / delete) → **Manage → Connectors** only.
+- **Use** in an agent → pin from the org library; pinning scopes one connection (and a table subset) to that agent. No agent ever stores credentials.
+- **N of one type** is fine: connector *type* is a template, each connection is a **named instance**. Ten Postgres = ten named rows. Blank names auto-derive `Postgres · host/db` so they stay distinct.
 
 ---
 
@@ -58,61 +107,113 @@ A guided wizard lives at **`/studios/new-agent`** (Name → Data → Train → R
 
 | Stage | What | Module |
 |---|---|---|
-| Profile | every column → role · distinct · sample values · null % (all tables of a connector) | `column_intel` |
+| Profile | every column → role · distinct · sample values · null % (all tables) | `column_intel` |
 | Knowledge | extract definitions from uploaded `.xlsx`/`.pptx`, applied live | auto-configure |
 | Queries | LLM example SQL, **verified read-only** before saving | `auto_queries` |
 | Evals | golden Q→expected from real aggregates | `auto_evals` |
-| Joins | value-overlap mining (works day-1, no query history) + proven-SQL mining | `join_miner` |
+| Joins | value-overlap mining (works day 1) + proven-SQL mining | `join_miner` |
 | Artifacts | Summary · FAQ · Briefing · Notes · KPI pack · Data dictionary | `studio_artifacts` |
 
-Training is **async** (`POST /studios/{id}/train`, poll `GET .../train/status`) — non-blocking. Re-trains skip unchanged tables (row-count watermark) and surface schema drift (new/dropped columns).
+Training is **async** (`POST /studios/{id}/train`, poll `GET .../train/status`). Profiling reports **per-table progress** (the status bar moves table-by-table) and per-source has a 600 s timeout so a hung remote query fails soft instead of freezing the run. Re-trains skip unchanged tables (row-count watermark) and surface schema drift.
+
+> When `HYBRID_SEMANTIC_LAYER` / `HYBRID_METRICS_CATALOG` are ON, **Auto-train everything** now also fills the **Semantic** + **Metrics** tabs (a `semantic_metrics` stage proposes table meanings + KPI definitions from each source schema and auto-approves them — no separate AI-suggest click needed). With the flags OFF, those tabs stay empty (opt-in). **Assets** is still opt-in. The Review queue is empty after a train because Auto-train auto-approves.
 
 ---
 
-## Domain Packs — lightweight "Skills" (shipped)
+## Domain Packs — lightweight "Skills"
 
-A **Domain Pack** is a declarative method (a `.yaml` in `backend/app/ai/packs/library/`) — a data-blind analytical recipe (method + required inputs + output spec). It is **never executed**: the router injects its `[METHOD] + [BINDING]` into the AgentV2 planner so the stable `create_data`/`create_artifact` loop follows it. This is the lightweight alternative to the native heavy Skills engine (sandbox exec → livelocks, kept OFF).
+A **Domain Pack** is a declarative `.yaml` recipe in `backend/app/ai/packs/library/` (method + required inputs + output spec). It is **never executed** — the router injects its `[METHOD] + [BINDING]` into the AgentV2 planner so the stable `create_data`/`create_artifact` loop follows it.
 
-**Why it doesn't pick the wrong skill:** a 3-layer gate — (1) **bind gate** (hard): only packs whose required inputs map to the agent's REAL columns are candidates; (2) **trigger gate**: the question must match the pack's domain; (3) **score + learned win-rate**.
-
-- **Bind / route** — `binder` maps each logical input → a real column per agent; `router` picks the one pack per question. A pack with unmet inputs stays **dormant** ("needs a Budget column"), never mis-fires.
+- **3-layer gate** prevents wrong-skill firing: (1) bind gate (required inputs must map to the agent's real columns), (2) trigger gate (question must match the domain), (3) score + learned win-rate.
+- **48 packs ship** — Finance (ebitda + Tier A/B/C) ported from the Anthropic financial-services method, and 33 general-analytics packs ported from the data-analytics-skills library. Packs whose columns are missing bind **dormant** until the column appears (re-checked on schema drift).
 - **Teach Box** (Studio → Teach) — paste an analysis → one LLM call classifies it into `SKILL`/`INSTRUCTION`/`DATA_RULE`/`KNOWLEDGE`, each born **pending** behind the review gate.
-- **Train wiring** — at Auto-train, `PACK_AUTOBIND` tries every library pack against the profiled schema (pending/dormant rows); active packs bias the query/eval generators; pack-carried + method-minted **goldens** seed the eval suite.
-- **Adaptive** — 👍/👎 on an answer updates a per-`(pack, question-cluster)` **win-rate**; the router demotes (and benches) a proven loser. Dormant packs are **re-checked on schema drift** (dormant→pending when the column appears). A studio skill can be **promoted to the org** (shared across studios).
-- **Review UI** — Studio → **Skills** tab (approve/reject/promote, see binding + win-rate + dormant hints); org-wide **Settings → Pack Analytics** (fires / win-rate / dormant backlog).
-- **Library page** — **Build → Skills** is the catalog of every pack + your SKILL.md playbooks, with a category rail (Performance · Valuation · Fund/PE · Accounting · Output · Org · Playbooks), search, and a data-readiness (tier) filter. Each card shows its domain, required-input chips, trigger preview, and an *active-studios* count (or **dormant** until a studio Auto-train binds it). `GET /api/packs/library` backs it (gated `DOMAIN_PACKS`).
+- **Review UI** — Studio → **Skills** tab (approve/reject/promote, binding + win-rate + dormant hints); org-wide **Settings → Pack Analytics**.
 
-**Library (48 packs):**
-- **Finance (15)** — ebitda-exec-summary + 7 **Tier A** (unit-economics, returns IRR/MOIC, 3-statement, variance, GL-recon, NAV tie-out, portfolio-monitoring), 4 **Tier C** output (pptx/xlsx/teaser/deck-refresh), 3 **Tier B** (comps/DCF/earnings-vs-consensus — *dormant until a market-data feed is connected*).
-- **General analytics (33)** — ported from the [data-analytics-skills](https://github.com/nimrodfisher/data-analytics-skills) method library (method re-authored data-blind; scripts dropped — our agent writes its own code): **Analysis** (cohort, funnel, segmentation, time-series, A/B test, root-cause, business-metrics), **Data Quality** (EDA, audit, query-validation, schema-mapper, metric-recon), **Storytelling**, **Stakeholder**, **Documentation**, **Workflow**. Data-bound ones (Analysis, Data Quality) bind to real columns; the soft ones bind via a broad `subject` input so they activate on any studio.
+Plan: `docs/PLAN_TEACH_SKILLS_ENGINE.md`.
 
-Categorised in the **Build → Skills** rail — a grouped sidebar (Finance / Analytics / Library, matching the studio agent nav) with a tier filter; the card grid goes 4-wide on large screens. Tier A runs on your data, Tier C is output/soft, Tier B needs an external feed.
+---
 
-Flags: `DOMAIN_PACKS` (master) · `PACK_ROUTER` (per-question activation) · `PACK_AUTOBIND` (bind at train) · `TEACH_BOX`. Plan: `docs/PLAN_TEACH_SKILLS_ENGINE.md`.
+## Intelligence Layer (dash-parity grounding)
+
+Eight capabilities that close the prompt-context gap vs the `reference/dash` blueprint. All flag-gated (default OFF) and additive. Each surfaces per-agent in **Studio → Intelligence** (8 tabs), with live data + an org-wide toggle, read via `GET /api/intelligence/layer/{layer}`.
+
+| Layer | Flag | What |
+|---|---|---|
+| Deep Profiler | `HYBRID_PROFILE_V2` | per-column role catalog (DIMENSION/STATE/MEASURE/IDENTIFIER/TEMPORAL) + top-3 values + variant warnings |
+| Lazy Profile / Drift | `HYBRID_PROFILE_V2` | cache-miss → inline-profiles a table added after training, at query time |
+| Proactive Insights | `HYBRID_PROACTIVE_INSIGHTS` | z-score + IQR + spike scan on every result → chips (no LLM, fail-soft) |
+| Forecasting | `HYBRID_FORECAST` | Prophet `forecast_df` tool (lazy-import; needs an image rebuild to bake prophet) |
+| Golden Queries | `HYBRID_GOLDEN_QUERIES` | promote proven SQL (👍 or verified ≥2) → injected first for reuse |
+| Code Enrich | `HYBRID_CODE_ENRICH` | LLM extracts grain / formulas / population from DDL+SQL → `pipeline_logic` |
+| Verified Metrics | `HYBRID_VERIFIED_METRICS` | a locked metric runs its own read-only `sql_calc`, marked AUTHORITATIVE, drift-tracked |
+| Hybrid Search + KG | `HYBRID_SEMANTIC_SEARCH` | pgvector + BM25 RRF + entity graph (scaffold — no prompt injection yet) |
+
+Migration chain: `resultcache1 → goldenq1 → verifmetric1 → hybridsearch1`. Each flag needs **both** a `@property` and an `UPGRADE_FLAGS` entry (else per-org overrides are silently ignored). The five safe layers (Profiler, Lazy, Verified Metrics, Golden, Insights) are enabled by default for the dev org; Code Enrich (per-table LLM cost), Forecast (needs prophet bake) and Hybrid Search (scaffold) stay OFF.
+
+> Next: ingest-storage upgrade (Parquet canonical store) + LLM merge-judge for semantic same-schema detection — plan in `docs/PLAN_INGEST_STORAGE.md`.
+
+---
+
+## Deploy / iterate
+
+The **frontend is baked** (`nuxt generate`) into the image. The **backend** can be hot-iterated.
+
+```bash
+# --- frontend change (.vue / nuxt config) ---
+cd frontend
+NODE_OPTIONS=--max-old-space-size=6144 npm run generate     # outputs to .output/public
+docker cp .output/public/. ca-app:/app/frontend/dist        # no restart needed
+docker commit ca-app cityagent-analytics:dev                # bake so it survives recreate
+
+# --- backend change (.py) ---
+docker cp backend/app/<file>.py ca-app:/app/backend/app/<file>.py
+docker exec ca-app python -m py_compile /app/backend/app/<file>.py
+docker restart ca-app
+docker commit ca-app cityagent-analytics:dev
+```
+
+> **Hard rules:**
+> - **Never** `docker compose ... --force-recreate` — it re-bakes from the image and wipes hot-copied files.
+> - **Never** rebuild the image from disk after a hot-copy without re-baking — `docker commit` is what persists.
+> - **Never** pull `bagofwords/bagofwords:latest` — always build `cityagent-analytics:dev` from this repo.
+> - On macOS, `/usr/bin/ls` may be absent — use `/bin/ls`.
+
+Per-org feature flags can be flipped live: `PUT /api/organization/hybrid-flags/{env}` body `{"enabled": true|false}` (or **Settings → Feature Flags**).
 
 ---
 
 ## Feature flags
 
-New features are flag-gated (`backend/app/settings/hybrid_flags.py`, env `HYBRID_*`, default OFF; dev `.env` turns them on). Per-org live overrides via Settings → Feature Flags. Key flags: `COLUMN_INTEL · AUTO_QUERIES · AUTO_EVALS · JOIN_GRAPH · DOC_KNOWLEDGE · STUDIOS · SEMANTIC_LAYER · METRICS_CATALOG · DOMAIN_PACKS · PACK_ROUTER · PACK_AUTOBIND · TEACH_BOX`. Env knob `STUDIO_LEARN_DAEMON_ENABLED`.
+New features are flag-gated (`backend/app/settings/hybrid_flags.py`, env `HYBRID_*`, default OFF; dev `.env` turns them on). Per-org live overrides via **Settings → Feature Flags**.
+
+Key flags: `COLUMN_INTEL · AUTO_QUERIES · AUTO_EVALS · JOIN_GRAPH · DOC_KNOWLEDGE · STUDIOS · SEMANTIC_LAYER · METRICS_CATALOG · DOMAIN_PACKS · PACK_ROUTER · PACK_AUTOBIND · TEACH_BOX · SCOPE_GATE · FOLLOWUPS`. Intelligence Layer: `PROFILE_V2 · PROACTIVE_INSIGHTS · FORECAST · GOLDEN_QUERIES · CODE_ENRICH · VERIFIED_METRICS · SEMANTIC_SEARCH`. Env knob: `STUDIO_LEARN_DAEMON_ENABLED`.
+
+For stability, **Skills (heavy sandbox exec) / sub-agents / MCP are OFF by default**; the lightweight Domain-Pack path is the supported "skills" mechanism.
 
 ---
 
-## Hard rules
+## Architecture rules (for contributors)
 
-1. **Never** pull `bagofwords/bagofwords:latest` — always build `cityagent-analytics:dev` from this repo.
-2. **OpenRouter only** for LLM (Dash `custom` provider, per-org Fernet-encrypted key).
-3. Touch Dash core **minimally** — prefer new files + hook points (this is a fast-moving OSS fork).
-4. Everything new is **flag-gated** (default OFF); everything learned is **review-gated** (pending → approve).
-5. New routes registered in `backend/main.py`; migrations chain off the single true head; no `from __future__ import annotations` on body+permission routes.
+1. **OpenRouter only** for LLM (Dash `custom` provider, per-org encrypted key).
+2. Touch Dash core **minimally** — prefer new files + hook points (fast-moving OSS fork).
+3. Everything new is **flag-gated** (default OFF); everything learned is **review-gated** (pending → approve).
+4. New routes registered in `backend/main.py`; migrations chain off the single true head; no `from __future__ import annotations` on body+permission routes.
+5. **UI/UX = `DESIGN_SYSTEM.md`** (clay brand tokens, serif H1, exactly 3 button variants, 3 card types, no `gray-*`). New/edited `.vue` must conform.
+6. **Agents are scoped to their data** — a scope guardrail (`HYBRID_SCOPE_GATE`, default ON) refuses off-topic questions; a studio report is locked to the studio's pinned sources.
+7. **Generated slides + dashboards must stay readable** — the `create_artifact` prompts enforce a contrast contract (all text/axes/legends must contrast the chosen light/dark theme).
 
-6. **UI/UX = `DESIGN_SYSTEM.md`** (repo root, source of truth): clay brand tokens, serif H1, **exactly 3 button variants**, 3 card types, no `gray-*`. Reference mockup `mockup-design-system.html`. New/edited `.vue` must conform.
-7. **Agents are scoped to their data.** Every agent has a **scope guardrail** (flag `HYBRID_SCOPE_GATE`, default ON) — refuses off-topic/general-knowledge, answers only from its connected sources. A **studio report is locked to the studio's pinned Data Agents** (composer can't leak other org sources into an agent).
-8. **Generated slides + dashboards must stay readable.** Both are LLM-authored (slides = python-pptx, dashboards = React+ECharts). The generator prompts (`backend/app/ai/tools/implementations/create_artifact.py`) enforce a **contrast contract**: the agent picks a light or dark theme per topic, but ALL text, chart axis labels, legends and data-labels must contrast the background (native pptx charts default to black fonts; the `dash` ECharts theme is light-tuned — both must be recolored on dark).
+---
 
-## Roadmap
+## Troubleshooting
 
-- **Smart Fin Pack — SHIPPED** (engine + Tier A/C + partial Tier B; see **Domain Packs** above and `docs/PLAN_TEACH_SKILLS_ENGINE.md`). Anthropic's `anthropics/financial-services` *method* ported as data-blind packs; binding machine-synthesized per agent; auto-bound at train; adaptive win-rate + drift re-check; review UI. 15 packs live.
-- **Pending — market-data connector** (the one Tier-B blocker): comps/DCF/earnings-vs-consensus packs are authored but bind **dormant** until a feed supplies peer multiples / WACC / consensus estimates. Wiring that connector is the remaining work; the packs light up automatically once the columns exist.
+| Symptom | Cause / fix |
+|---|---|
+| `{"status":"ok"}` not returned | container still booting; `docker logs ca-app` and re-check `/health` |
+| Chat/training errors immediately | no LLM provider — run `seed_openrouter.py` or set `OPENROUTER_API_KEY` |
+| Auto-train bar "stuck" early | profiling a large connector takes minutes; the bar now moves per table — watch `docker logs -f ca-app 2>&1 \| grep "\[profile\]"` |
+| FE change didn't show | you skipped the bake — `docker cp .output/public/. ca-app:/app/frontend/dist` then `docker commit` |
+| FE change vanished after restart | a `--force-recreate` wiped the hot-copy; rebuild + re-bake |
+| Setting won't take effect | a compose `${VAR:-default}` is overriding the registry default |
+| Semantic/Metrics tabs empty | enable `HYBRID_SEMANTIC_LAYER` / `HYBRID_METRICS_CATALOG` then re-run **Auto-train everything** (fills + auto-approves them); flags OFF = empty by design. Assets still opt-in (AI-suggest). |
 
-See `CLAUDE.md` for the complete codebase map, landmines, and per-feature changelog.
+See `CLAUDE.md` for the complete codebase map + every landmine, and `DEVLOG.md` for the per-feature changelog.

@@ -90,6 +90,206 @@ def _resolve_upload_path(stored_path: str) -> Optional[str]:
     return None
 
 
+async def _new_source_response(db, data_source_service, ds_id, organization, current_user, *, extra=None):
+    """Build the standard from-file response body for an existing data source."""
+    ds_schema = await data_source_service.get_data_source(db, str(ds_id), organization, current_user)
+    try:
+        tables = await data_source_service.get_data_source_schema(
+            db, str(ds_id), include_inactive=True,
+            organization=organization, current_user=current_user,
+        )
+    except Exception:  # noqa: BLE001
+        tables = []
+    body = json.loads(ds_schema.json()) if hasattr(ds_schema, "json") else dict(ds_schema)
+    body["tables"] = [json.loads(t.json()) if hasattr(t, "json") else dict(t) for t in (tables or [])]
+    if extra:
+        body.update(extra)
+    return body
+
+
+async def _spreadsheet_connections(db, org_id):
+    """All non-deleted spreadsheet Connections for the org, eagerly mapped to
+    their (single) DataSource. Returns list[(Connection, DataSource)]."""
+    rows = (
+        await db.execute(
+            select(Connection)
+            .options(selectinload(Connection.data_sources))
+            .where(
+                Connection.organization_id == org_id,
+                Connection.type == "spreadsheet",
+                Connection.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    out = []
+    for c in rows:
+        ds = (c.data_sources[0] if getattr(c, "data_sources", None) else None)
+        if ds is not None and ds.deleted_at is None:
+            out.append((c, ds))
+    return out
+
+
+async def _try_merge_same_schema(db, *, organization, current_user, file, abs_path, content_hash):
+    """Task 5: return a response body when this upload should reuse an existing
+    source (byte-identical dedup OR same-schema append), else None to fall back.
+
+    Defensive throughout — any failure returns None so the caller creates a new
+    source as today.
+    """
+    from app.services.ingest import smart_upload
+    from app.data_sources.clients.spreadsheet_client import SpreadsheetClient
+    from sqlalchemy.orm.attributes import flag_modified
+
+    candidates = await _spreadsheet_connections(db, str(organization.id))
+    if not candidates:
+        return None
+
+    # ── (a) content-hash dedup: byte-identical re-upload -> point to existing ──
+    for conn, ds in candidates:
+        try:
+            cfg = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        if cfg.get("content_hash") and cfg.get("content_hash") == content_hash:
+            logger.info("from-file: dedup hit -> reuse data_source %s (hash %s)", ds.id, content_hash[:12])
+            return await _new_source_response(
+                db, data_source_service, ds.id, organization, current_user,
+                extra={"reused": True, "merged": False, "reason": "content_hash_dedup"},
+            )
+
+    # ── (b) same-schema append: match normalized column-set of sheet(s) ────────
+    try:
+        new_frames = SpreadsheetClient(path=file.path, file_id=str(file.id))._load_frames()
+    except Exception:  # noqa: BLE001
+        return None
+    if not new_frames:
+        return None
+    new_colsets = {name: smart_upload.normalize_columns(df.columns) for name, df in new_frames.items()}
+
+    for conn, ds in candidates:
+        try:
+            cfg = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
+            existing = SpreadsheetClient(
+                path=cfg.get("path"),
+                sheet_names=cfg.get("sheet_names"),
+                file_id=cfg.get("file_id"),
+                merged_paths=cfg.get("merged_paths"),
+            )._load_frames()
+        except Exception:  # noqa: BLE001
+            continue
+        existing_colsets = {name: smart_upload.normalize_columns(df.columns) for name, df in existing.items()}
+
+        # Every NEW sheet must match SOME existing sheet exactly (conservative).
+        all_match = bool(new_colsets) and all(
+            any(smart_upload.columns_match(ncs, ecs) for ecs in existing_colsets.values())
+            for ncs in new_colsets.values()
+        )
+        if not all_match:
+            continue
+
+        # Append: add this file to the target source's merged_paths + re-sync.
+        label = smart_upload.label_from_filename(file.filename or file.path)
+        mp = list(cfg.get("merged_paths") or [])
+        mp.append({"path": file.path, "label": label, "file_id": str(file.id)})
+        cfg["merged_paths"] = mp
+        conn.config = json.dumps(cfg) if isinstance(conn.config, str) else cfg
+        flag_modified(conn, "config")
+        await db.commit()
+
+        # Re-run schema discovery so row counts/profiling reflect the merged data.
+        try:
+            from app.services.connection_service import ConnectionService
+
+            ds_q = await db.execute(
+                select(DataSource).options(selectinload(DataSource.connections)).filter(DataSource.id == ds.id)
+            )
+            ds_full = ds_q.scalar_one()
+            conn_full = ds_full.connections[0]
+            await ConnectionService().refresh_schema(db=db, connection=conn_full, current_user=current_user)
+            await data_source_service.sync_domain_tables_from_connection(
+                db=db, data_source=ds_full, connection=conn_full, max_auto_select=9999,
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            logger.warning("from-file: re-sync after same-schema append failed", exc_info=True)
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+
+        logger.info("from-file: same-schema append -> data_source %s (+%s)", ds.id, label)
+        return await _new_source_response(
+            db, data_source_service, ds.id, organization, current_user,
+            extra={"reused": True, "merged": True, "reason": "same_schema_append", "appended_label": label},
+        )
+
+    return None
+
+
+async def _route_glossary_sheets(db, *, organization, data_source, file, abs_path):
+    """Task 6: detect glossary/data-dictionary sheets in the file, ingest each
+    into the Knowledge layer (KnowledgeDoc, pending), and deactivate the
+    corresponding junk queryable table. Returns the list of routed sheet names.
+
+    Conservative + fail-soft: only confident glossary sheets are routed; a sheet
+    that also reads as a real table stays queryable unless it's confidently a
+    glossary. Never raises into the caller.
+    """
+    from app.services.ingest import smart_upload
+    from app.data_sources.clients.spreadsheet_client import SpreadsheetClient
+    from app.ai.knowledge.docs_index import ingest_doc
+    from app.models.datasource_table import DataSourceTable
+
+    routed: list[str] = []
+    try:
+        frames = SpreadsheetClient(path=file.path, file_id=str(file.id))._load_frames()
+    except Exception:  # noqa: BLE001
+        return routed
+    if not frames:
+        return routed
+
+    for table_name, df in frames.items():
+        try:
+            if not smart_upload.looks_like_glossary(df, sheet_name=table_name, filename=file.filename or ""):
+                continue
+            body = smart_upload.glossary_to_markdown(df, sheet_name=table_name)
+            if not body or not body.strip():
+                continue
+            title = f"{(file.filename or 'glossary')} — {table_name}"
+            await ingest_doc(
+                db, organization=organization, title=title, body=body,
+                source="upload", data_source_id=str(data_source.id),
+            )
+            # Deactivate the junk queryable table (the slugged sheet name).
+            try:
+                tbl = (
+                    await db.execute(
+                        select(DataSourceTable).where(
+                            DataSourceTable.datasource_id == data_source.id,
+                            func.lower(DataSourceTable.name) == table_name.lower(),
+                        )
+                    )
+                ).scalars().first()
+                if tbl is not None:
+                    tbl.is_active = False
+                    await db.commit()
+            except Exception:  # noqa: BLE001
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+            routed.append(table_name)
+            logger.info("from-file: routed glossary sheet '%s' -> KnowledgeDoc (pending)", table_name)
+        except Exception:  # noqa: BLE001
+            logger.warning("from-file: glossary route for sheet '%s' failed", table_name, exc_info=True)
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+    return routed
+
+
 @router.post("/data_sources/from-file")
 @requires_permission('create_data_source')
 async def create_data_source_from_file(
@@ -121,12 +321,43 @@ async def create_data_source_from_file(
             detail=f"Unsupported file type '{ext}'. Upload an Excel (.xlsx/.xls) or CSV file.",
         )
 
+    # ── 1b. Task 5 (HYBRID_MERGE_SAME_SCHEMA): content-hash dedup + same-schema
+    # append. Fail-soft — any error here falls through to today's behavior
+    # (new source + new table per file).
+    content_hash = ""
+    try:
+        from app.settings.hybrid_flags import flags as _flags
+        from app.services.ingest import smart_upload
+
+        content_hash = smart_upload.file_content_hash(abs_path)
+        if _flags.MERGE_SAME_SCHEMA and content_hash:
+            merged = await _try_merge_same_schema(
+                db,
+                organization=organization,
+                current_user=current_user,
+                file=file,
+                abs_path=abs_path,
+                content_hash=content_hash,
+            )
+            if merged is not None:
+                return merged
+    except Exception:  # noqa: BLE001 - merge is best-effort, never blocks upload
+        logger.warning("from-file: merge/dedup probe failed; proceeding with new source", exc_info=True)
+
     # ── 2. Create the Connection (type='spreadsheet') ───────────────────
     config = {
         "file_id": str(file.id),
         "sheet_names": payload.sheet_names,
         # Resolved server-side path so the client reads without a DB lookup.
         "path": file.path,
+        # Task 5: stored on the connection config (queryable JSON; least-invasive
+        # spot — no new column/migration) so a byte-identical re-upload and a
+        # same-schema append can find this source later. Harmless when the flag
+        # is off (just metadata the client ignores).
+        "content_hash": content_hash,
+        # Task 5: extra same-schema files merged into this source (populated by
+        # _try_merge_same_schema on a later matching upload). Empty here.
+        "merged_paths": [],
     }
 
     # Auto-generate connection name as spreadsheet-N (mirrors create_data_source).
@@ -222,6 +453,21 @@ async def create_data_source_from_file(
         except Exception:
             pass
 
+    # ── 4b. Task 6 (HYBRID_SMART_HEADER): glossary routing ──────────────
+    # If a sheet looks like a field-definition glossary, route its content into
+    # the Knowledge layer (KnowledgeDoc, pending) so its terms can map onto OTHER
+    # sources' columns — and deactivate the junk queryable table. Fail-soft.
+    glossary_routed: list[str] = []
+    try:
+        from app.settings.hybrid_flags import flags as _sh_flags
+
+        if _sh_flags.SMART_HEADER:
+            glossary_routed = await _route_glossary_sheets(
+                db, organization=organization, data_source=data_source, file=file, abs_path=abs_path,
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("from-file: glossary routing failed", exc_info=True)
+
     # ── 5. Build the response: DataSourceSchema (+ tables[]) ─────────────
     ds_schema = await data_source_service.get_data_source(
         db, str(data_source.id), organization, current_user
@@ -244,4 +490,6 @@ async def create_data_source_from_file(
     body["tables"] = [
         json.loads(t.json()) if hasattr(t, "json") else dict(t) for t in (tables or [])
     ]
+    if glossary_routed:
+        body["glossary_routed"] = glossary_routed
     return body

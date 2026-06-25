@@ -86,6 +86,17 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_PACK_AUTOBIND": {"label": "Pack Auto-bind", "role": "review"},
     "HYBRID_PACK_ROUTER": {"label": "Pack Router", "role": "agent"},
     "HYBRID_TEACH_BOX": {"label": "Teach Box (paste→skill)", "role": "review"},
+    "HYBRID_MERGE_SAME_SCHEMA": {"label": "Merge Same-Schema Uploads", "role": "user"},
+    "HYBRID_SMART_HEADER": {"label": "Smart Header + Glossary", "role": "user"},
+    "HYBRID_RESULT_CACHE": {"label": "Result Cache", "role": "agent"},
+    "HYBRID_QUERY_LEARNING": {"label": "Live Query Learning", "role": "review"},
+    "HYBRID_PROFILE_V2": {"label": "Deep Profiler (dim catalog)", "role": "agent"},
+    "HYBRID_PROACTIVE_INSIGHTS": {"label": "Proactive Insights + Anomaly", "role": "user"},
+    "HYBRID_FORECAST": {"label": "Forecasting Tool", "role": "user"},
+    "HYBRID_GOLDEN_QUERIES": {"label": "Golden Query Promotion", "role": "review"},
+    "HYBRID_VERIFIED_METRICS": {"label": "Executable Verified Metrics", "role": "review"},
+    "HYBRID_SEMANTIC_SEARCH": {"label": "Hybrid Search + KG", "role": "agent"},
+    "HYBRID_CODE_ENRICH": {"label": "Code Enrich (pipeline logic)", "role": "agent"},
 }
 
 
@@ -452,12 +463,103 @@ class HybridFlags:
         return _bool("HYBRID_TEACH_BOX")
 
     @property
+    def MERGE_SAME_SCHEMA(self) -> bool:
+        # Ingest Task 5: same-schema spreadsheet uploads collapse into ONE
+        # data source + table instead of N sources. (a) Content-hash dedup —
+        # a byte-identical re-upload returns the existing source. (b) Same-schema
+        # append — when the new file's normalized column-set matches an existing
+        # spreadsheet source in the same org, the new file's path is added to
+        # that source's connection (config['merged_paths']) and the rows are
+        # UNION-loaded into the one table with a `_source_label` provenance
+        # column, rather than creating a new source+table. Fail-soft: any error
+        # falls back to today's one-source-per-file behavior. Default OFF.
+        return _bool("HYBRID_MERGE_SAME_SCHEMA")
+
+    @property
+    def SMART_HEADER(self) -> bool:
+        # Ingest Task 6: smarter xlsx ingest. (a) Header detection — if reading a
+        # sheet with the default header yields a high fraction of `Unnamed: N`
+        # columns, scan the first rows for the real header row and re-read. (b)
+        # Glossary routing — a field-definition / data-dictionary sheet (2-3
+        # cols of name->description, or filename/sheet name contains
+        # defin/glossary/dictionary) is routed into the Knowledge layer
+        # (KnowledgeDoc, pending) so its terms can map onto OTHER sources'
+        # columns, instead of landing as a junk `Unnamed` queryable table.
+        # Conservative — only reroutes when confident. Default OFF.
+        return _bool("HYBRID_SMART_HEADER")
+
+    @property
+    def RESULT_CACHE(self) -> bool:
+        # Task 7: deterministic result cache. Keyed by (normalized question text +
+        # the report's per-source row-count watermark signature). On a HIT with an
+        # unchanged watermark, serve the stored create_data result and SKIP codegen
+        # + execution entirely. A re-train / new upload bumps the watermark -> the
+        # key changes -> natural miss -> rebuild once. Never serves a stale entry
+        # when the watermark differs. Default OFF.
+        return _bool("HYBRID_RESULT_CACHE")
+
+    @property
+    def QUERY_LEARNING(self) -> bool:
+        # Task 8: live query-learning. When a create_data step SUCCEEDS, persist its
+        # working SQL/approach to the query library tagged with the question (review-
+        # gated, born pending), marked a win, so future similar questions can reuse
+        # it. A fail-then-retry-success records the corrected approach as positive
+        # (and optionally the dead path as a down-weighted negative studio note).
+        # Reuse is injected into the planner context the same way auto-queries are.
+        # Default OFF.
+        return _bool("HYBRID_QUERY_LEARNING")
+
+    @property
     def DOC_KNOWLEDGE(self) -> bool:
         # Kepler Phase 5: company-docs RAG. Approved docs are chunked + PG
         # full-text-searched (VECTORLESS — no embedder in image) and the top
         # matches injected as a "### Company definitions" block to resolve
         # business-term ambiguity. Approval-gated. Default OFF.
         return _bool("HYBRID_DOC_KNOWLEDGE")
+
+    @property
+    def PROFILE_V2(self) -> bool:
+        # Wave1 P1: deep profiler — per-column role (DIMENSION/STATE/MEASURE/
+        # IDENTIFIER/TEMPORAL) + top-3 values/freq + variant warnings, stored in
+        # DataSourceTable.metadata_json['profile_v2'] + injected as a compact
+        # 80-char/col prompt catalog. Default OFF.
+        return _bool("HYBRID_PROFILE_V2")
+
+    @property
+    def PROACTIVE_INSIGHTS(self) -> bool:
+        # Wave1 P2: z-score/IQR anomaly + trend scan on result df → insights[]
+        # attached post-create_data, rendered as chips. Default OFF.
+        return _bool("HYBRID_PROACTIVE_INSIGHTS")
+
+    @property
+    def FORECAST(self) -> bool:
+        # Wave1 P3: Prophet forecast tool (df[date,value] → forecast df). OFF.
+        return _bool("HYBRID_FORECAST")
+
+    @property
+    def GOLDEN_QUERIES(self) -> bool:
+        # Wave1 P4: promote thumbs-up / repeat-success learned queries to golden;
+        # golden ranks first in coder injection. Default OFF.
+        return _bool("HYBRID_GOLDEN_QUERIES")
+
+    @property
+    def VERIFIED_METRICS(self) -> bool:
+        # Wave1 P7: executable locked MetricDefinition (run via metric tool,
+        # overrides agent formula) + drift check. Default OFF.
+        return _bool("HYBRID_VERIFIED_METRICS")
+
+    @property
+    def SEMANTIC_SEARCH(self) -> bool:
+        # Wave1 P8: hybrid pgvector + BM25 RRF search + knowledge graph. OFF.
+        return _bool("HYBRID_SEMANTIC_SEARCH")
+
+    @property
+    def CODE_ENRICH(self) -> bool:
+        # Wave1 P6: L3 Codex code-enrich — extract grain + derived-column formulas
+        # + population from table/view DDL source SQL, store in
+        # DataSourceTable.metadata_json['pipeline_logic'], inject a compact
+        # PIPELINE LOGIC prompt block. Meaning lives in code, not schemas. Default OFF.
+        return _bool("HYBRID_CODE_ENRICH")
 
     def snapshot(self) -> dict[str, bool]:
         """All flags as a dict (for /health, debugging, tests)."""
@@ -484,6 +586,10 @@ class HybridFlags:
             "EVAL_HARNESS": self.EVAL_HARNESS,
             "EVAL_SCHEDULE_ENABLED": self.EVAL_SCHEDULE_ENABLED,
             "DOC_KNOWLEDGE": self.DOC_KNOWLEDGE,
+            "RESULT_CACHE": self.RESULT_CACHE,
+            "QUERY_LEARNING": self.QUERY_LEARNING,
+            "MERGE_SAME_SCHEMA": self.MERGE_SAME_SCHEMA,
+            "SMART_HEADER": self.SMART_HEADER,
             "CONTEXT_COMPACT": self.CONTEXT_COMPACT,
             "SKILL_OPTIMIZE": self.SKILL_OPTIMIZE,
             "SUBAGENTS": self.SUBAGENTS,
@@ -495,6 +601,13 @@ class HybridFlags:
             "PACK_AUTOBIND": self.PACK_AUTOBIND,
             "PACK_ROUTER": self.PACK_ROUTER,
             "TEACH_BOX": self.TEACH_BOX,
+            "PROFILE_V2": self.PROFILE_V2,
+            "PROACTIVE_INSIGHTS": self.PROACTIVE_INSIGHTS,
+            "FORECAST": self.FORECAST,
+            "GOLDEN_QUERIES": self.GOLDEN_QUERIES,
+            "VERIFIED_METRICS": self.VERIFIED_METRICS,
+            "SEMANTIC_SEARCH": self.SEMANTIC_SEARCH,
+            "CODE_ENRICH": self.CODE_ENRICH,
         }
 
 

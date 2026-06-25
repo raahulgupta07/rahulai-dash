@@ -184,56 +184,122 @@
 
                         <!-- AI AUTO-PILOT (studio home) -->
                         <section v-else-if="activeTab === 'autopilot'">
-                            <div class="flex items-start justify-between mb-4">
+                            <div class="flex items-start justify-between gap-4 mb-1">
                                 <div>
                                     <h2 class="text-lg font-semibold text-[#1f2328]" style="font-family: ui-serif, Georgia, 'Times New Roman', serif">AI Auto-pilot</h2>
-                                    <p class="text-xs text-[#6b6b6b] mt-0.5">One button trains the whole agent — columns, knowledge, joins, artifacts &amp; insights. No manual steps.</p>
+                                    <p class="text-xs text-[#6b6b6b] mt-0.5 max-w-[460px]">Add any source. The router sorts each into Data · Knowledge · Skill · Rule. Then one button trains it all — no per-dataset code.</p>
                                 </div>
-                                <div v-if="canEdit" class="flex items-center gap-2">
-                                    <div class="inline-flex items-center rounded-lg overflow-hidden border border-[#E7E5DD]">
-                                        <button type="button" class="inline-flex items-center gap-1.5 text-xs font-medium text-[#6b6b6b] bg-white hover:bg-[#faf8f3] px-3 py-2 transition-colors" @click="openAddSource">
-                                            <UIcon name="i-heroicons-link" class="w-3.5 h-3.5" /> Pin existing
-                                        </button>
-                                        <button type="button" class="inline-flex items-center gap-1.5 text-xs font-medium text-[#6b6b6b] bg-white hover:bg-[#faf8f3] px-3 py-2 border-s border-[#E7E5DD] transition-colors" @click="openUploadSource">
-                                            <UIcon name="i-heroicons-arrow-up-tray" class="w-3.5 h-3.5" /> Upload file
-                                        </button>
+                                <div class="shrink-0 text-center">
+                                    <div class="relative w-[54px] h-[54px] mx-auto">
+                                        <svg width="54" height="54" style="transform:rotate(-90deg)">
+                                            <circle cx="27" cy="27" r="22" stroke="#ECE7E0" stroke-width="6" fill="none" />
+                                            <circle cx="27" cy="27" r="22" stroke="#C2683F" stroke-width="6" fill="none" stroke-linecap="round" stroke-dasharray="138" :stroke-dashoffset="Math.round(138 - 138 * readiness.score / 100)" style="transition:stroke-dashoffset .5s" />
+                                        </svg>
+                                        <div class="absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-[#C2683F]" style="font-family: ui-serif, Georgia, serif">{{ readiness.score }}</div>
                                     </div>
-                                    <button type="button" :disabled="trainingAll || !sources.length" class="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[#C2683F] hover:bg-[#A8542F] rounded-lg px-3.5 py-2 transition-colors disabled:opacity-50" @click="runFullTrain">
-                                        <Spinner v-if="trainingAll" class="h-3.5 w-3.5 text-white" />
-                                        <UIcon v-else name="i-heroicons-bolt" class="w-3.5 h-3.5" />
-                                        {{ trainingAll ? 'Training…' : 'Auto-train everything' }}
+                                    <div class="text-[9px] uppercase tracking-wide text-[#9a958c] mt-0.5">readiness</div>
+                                </div>
+                            </div>
+
+                            <!-- STEP 1 · ADD -->
+                            <div class="relative mt-4 border border-[#E7E5DD] rounded-2xl bg-white p-4">
+                                <span class="absolute -top-2.5 left-4 bg-[#2B2A26] text-white text-[9.5px] font-semibold px-2.5 py-0.5 rounded-full tracking-wide">1 · ADD</span>
+                                <p class="text-xs text-[#6b6b6b] mt-1 mb-3">Two ways in — attach a source, or upload a file:</p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <!-- Add a source = pick from org library OR + New (merges old Connect + Pin) -->
+                                    <button type="button" :disabled="!canEdit" class="text-left border border-[#E7E5DD] rounded-xl p-3 bg-gradient-to-b from-white to-[#fdfcf9] hover:border-[#2F6F4F] transition-colors disabled:opacity-50 flex flex-col min-h-[120px]" @click="openAddPicker">
+                                        <span class="w-8 h-8 rounded-lg bg-[#E7F1EB] flex items-center justify-center mb-2"><UIcon name="i-heroicons-circle-stack" class="w-4 h-4 text-[#2F6F4F]" /></span>
+                                        <span class="text-[13px] font-semibold text-[#1f2328]">Add a source</span>
+                                        <span class="text-[11px] text-[#6b6b6b] mt-0.5">Pin a connection from your org library, or create a new one (46 types). Shared across the org; pinning scopes it to this agent.</span>
+                                        <span class="mt-auto pt-2 text-[10px] text-[#9a958c]">Browse org library →</span>
+                                    </button>
+                                    <!-- Upload stays separate — a local file is not a warehouse connection -->
+                                    <button type="button" :disabled="!canEdit" class="text-left border border-[#E7E5DD] rounded-xl p-3 bg-gradient-to-b from-white to-[#fdfcf9] hover:border-[#C2683F] transition-colors disabled:opacity-50 flex flex-col min-h-[120px]" @click="openUploadSource">
+                                        <span class="w-8 h-8 rounded-lg bg-[#F6EBE3] flex items-center justify-center mb-2"><UIcon name="i-heroicons-arrow-up-tray" class="w-4 h-4 text-[#C2683F]" /></span>
+                                        <span class="text-[13px] font-semibold text-[#1f2328]">Upload file</span>
+                                        <span class="text-[11px] text-[#6b6b6b] mt-0.5">Spreadsheet, doc, slide deck or PDF off your machine. Becomes its own source and auto-pins on drop.</span>
+                                        <span class="mt-auto pt-2 flex flex-wrap gap-1">
+                                            <span class="text-[10px] border border-[#E7E5DD] rounded-full px-1.5 py-0.5 text-[#6b6b6b]">.xlsx</span>
+                                            <span class="text-[10px] border border-[#E7E5DD] rounded-full px-1.5 py-0.5 text-[#6b6b6b]">.csv</span>
+                                            <span class="text-[10px] border border-[#E7E5DD] rounded-full px-1.5 py-0.5 text-[#6b6b6b]">.pdf</span>
+                                            <span class="text-[10px] border border-[#E7E5DD] rounded-full px-1.5 py-0.5 text-[#6b6b6b]">.docx</span>
+                                        </span>
                                     </button>
                                 </div>
+
                             </div>
 
-                            <div v-if="!sources.length" class="py-10 text-center border border-dashed border-[#E7E5DD] rounded-2xl">
-                                <UIcon name="i-heroicons-sparkles" class="w-7 h-7 mx-auto text-[#9a958c] mb-1.5" />
-                                <p class="text-xs text-[#6b6b6b]">Pin a source under <button class="text-[#C2683F] font-medium" @click="activeTab='sources'">Sources &amp; Data</button> to begin.</p>
-                            </div>
-
-                            <template v-else>
-                                <!-- READINESS HERO -->
-                                <div class="flex items-center gap-4 rounded-2xl border border-[#E8C9B5] bg-gradient-to-br from-[#FBF6F2] to-white p-4 mb-4">
-                                    <div class="relative w-[84px] h-[84px] shrink-0">
-                                        <svg width="84" height="84" style="transform:rotate(-90deg)">
-                                            <circle cx="42" cy="42" r="36" stroke="#F0E2D7" stroke-width="9" fill="none" />
-                                            <circle cx="42" cy="42" r="36" stroke="#C2683F" stroke-width="9" fill="none" stroke-linecap="round" stroke-dasharray="226" :stroke-dashoffset="readinessOffset" style="transition:stroke-dashoffset .5s" />
-                                        </svg>
-                                        <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                            <span class="text-xl font-semibold" style="font-family: ui-serif, Georgia, serif">{{ readiness.score }}</span>
-                                            <span class="text-[9px] uppercase tracking-wide text-[#9a958c]">ready</span>
+                            <!-- STEP 2 · ROUTE -->
+                            <div class="relative mt-5 border border-[#E7E5DD] rounded-2xl bg-white p-4">
+                                <span class="absolute -top-2.5 left-4 bg-[#2B2A26] text-white text-[9.5px] font-semibold px-2.5 py-0.5 rounded-full tracking-wide">2 · ROUTE</span>
+                                <p class="text-[10px] uppercase tracking-wide text-[#9a958c] mt-1 mb-3 flex items-center gap-2"><span class="h-px bg-[#EFEDE6] flex-1"></span>router sorts each input into 4 lanes · all born pending (review gate)<span class="h-px bg-[#EFEDE6] flex-1"></span></p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2.5">
+                                    <!-- DATA -->
+                                    <div class="rounded-xl border border-[#E7E5DD] bg-[#E7F1EB] p-3 flex flex-col min-h-[164px]">
+                                        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-[#2F6F4F]"></span><h4 class="text-xs font-semibold text-[#2F6F4F]">Data</h4><span class="ms-auto text-[10px] text-[#2F6F4F] font-semibold">{{ sources.length }}</span></div>
+                                        <p class="text-[9.5px] text-[#5f7d6c] mb-1">tables → profiled &amp; queryable</p>
+                                        <div v-for="s in sources.slice(0,4)" :key="s.id" class="bg-white border border-black/5 rounded-lg p-2 mt-1.5">
+                                            <div class="flex items-center gap-1.5"><DataSourceIcon v-if="s.type" class="h-3.5 shrink-0" :type="s.type" /><UIcon v-else name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-[#9a958c] shrink-0" /><span class="text-[11px] font-medium text-[#1f2328] truncate">{{ s.name || s.agent_id }}</span></div>
+                                            <span class="block text-[9.5px] text-[#9a958c] mt-0.5"><template v-if="intelFor(s.agent_id).tables.length">{{ intelFor(s.agent_id).tables.length }} table{{ intelFor(s.agent_id).tables.length===1?'':'s' }} · <span class="text-[#2F6F4F] font-medium">trained</span></template><template v-else>not trained yet</template></span>
                                         </div>
+                                        <div v-if="!sources.length" class="text-[10.5px] text-[#5f7d6c] mt-1.5">Upload a sheet or connect a source above.</div>
+                                        <button type="button" class="mt-auto pt-2 text-[10px] text-[#2F6F4F] font-medium text-left hover:underline" @click="activeTab='sources'">Manage in Sources →</button>
                                     </div>
-                                    <div class="flex-1 min-w-0">
-                                        <h3 class="text-sm font-semibold text-[#1f2328]" style="font-family: ui-serif, Georgia, serif">{{ readiness.score >= 70 ? 'Agent is grounded & answering' : 'Agent needs training' }}</h3>
-                                        <p class="text-[11px] text-[#9a958c] mt-0.5">AI keeps it current — re-runs profiling, joins, artifacts &amp; insights on every train.</p>
-                                        <div class="flex flex-wrap gap-1.5 mt-2">
-                                            <span v-for="(c, i) in readiness.checks" :key="i" class="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full border" :class="c.done ? 'border-[#cde6d8] bg-[#E7F2EC] text-[#2f7a52]' : 'border-[#E8C9B5] bg-[#FBF6F2] text-[#A8542F]'">
-                                                {{ c.done ? '✓' : '○' }} {{ c.label }}<template v-if="!c.done && c.hint"> · {{ c.hint }}</template>
-                                            </span>
+                                    <!-- KNOWLEDGE -->
+                                    <div class="rounded-xl border border-[#E7E5DD] bg-[#E4F0F4] p-3 flex flex-col min-h-[164px]">
+                                        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-[#1F6F8B]"></span><h4 class="text-xs font-semibold text-[#1F6F8B]">Knowledge</h4><span class="ms-auto text-[10px] text-[#1F6F8B] font-semibold">{{ docs.length }}</span></div>
+                                        <p class="text-[9.5px] text-[#5a7d89] mb-1">docs → definitions extracted</p>
+                                        <div v-for="d in docs.slice(0,4)" :key="d.id" class="bg-white border border-black/5 rounded-lg p-2 mt-1.5">
+                                            <div class="flex items-center gap-1.5"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-[#1F6F8B] shrink-0" /><span class="text-[11px] font-medium text-[#1f2328] truncate">{{ d.title || d.name || d.filename || 'Knowledge doc' }}</span></div>
                                         </div>
+                                        <div v-if="!docs.length" class="text-[10.5px] text-[#5a7d89] mt-1.5">Upload a PDF / deck, or extract from a source.</div>
+                                        <button type="button" class="mt-auto pt-2 text-[10px] text-[#1F6F8B] font-medium text-left hover:underline" @click="activeTab='sources'">Manage in Knowledge →</button>
+                                    </div>
+                                    <!-- SKILL -->
+                                    <div class="rounded-xl border border-[#E7E5DD] bg-[#ECEAFB] p-3 flex flex-col min-h-[164px]">
+                                        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-[#5A4FCF]"></span><h4 class="text-xs font-semibold text-[#5A4FCF]">Skill</h4></div>
+                                        <p class="text-[9.5px] text-[#6f67b0] mb-1">a method/recipe → pack</p>
+                                        <div class="bg-white border border-black/5 rounded-lg p-2 mt-1.5">
+                                            <span class="text-[11px] text-[#1f2328]">Paste an analysis method — the router classifies it and binds it to your columns.</span>
+                                        </div>
+                                        <button type="button" class="mt-auto pt-2 text-[10px] text-[#5A4FCF] font-medium text-left hover:underline" @click="activeTab = teachEnabled ? 'teach' : 'skills'">{{ teachEnabled ? 'Add in Teach →' : 'Open Skills →' }}</button>
+                                    </div>
+                                    <!-- RULE / INSTRUCTION -->
+                                    <div class="rounded-xl border border-[#E7E5DD] bg-[#F6EEDD] p-3 flex flex-col min-h-[164px]">
+                                        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-[#9A6A12]"></span><h4 class="text-xs font-semibold text-[#9A6A12]">Rule / Instruction</h4><span class="ms-auto text-[10px] text-[#9A6A12] font-semibold">{{ activeInstr + activeExamples }}</span></div>
+                                        <p class="text-[9.5px] text-[#8a7333] mb-1">a constraint you type</p>
+                                        <div v-if="activeInstr" class="bg-white border border-black/5 rounded-lg p-2 mt-1.5">
+                                            <span class="text-[11px] text-[#1f2328]">{{ activeInstr }} instruction{{ activeInstr===1?'':'s' }} applied to every answer</span>
+                                        </div>
+                                        <div v-if="activeExamples" class="bg-white border border-black/5 rounded-lg p-2 mt-1.5">
+                                            <span class="text-[11px] text-[#1f2328]">{{ activeExamples }} example{{ activeExamples===1?'':'s' }} grounding the agent</span>
+                                        </div>
+                                        <div v-if="!activeInstr && !activeExamples" class="text-[10.5px] text-[#8a7333] mt-1.5">Type a rule like “FY starts in April”.</div>
+                                        <button type="button" class="mt-auto pt-2 text-[10px] text-[#9A6A12] font-medium text-left hover:underline" @click="activeTab='instructions'">Manage in Instructions →</button>
                                     </div>
                                 </div>
+                                <div class="text-[11px] text-[#6b6b6b] bg-[#F6EBE3] rounded-lg px-3 py-2 mt-2.5">Paste a method or rule in <button class="text-[#A8542F] font-medium" @click="activeTab = teachEnabled ? 'teach' : 'instructions'">Teach</button> — the router classifies it into a lane with a confidence score, and you can <b>Re-route</b> it there if it guessed wrong. Low-confidence items auto-flag for review.</div>
+                            </div>
+
+                            <!-- STEP 3 · TRAIN -->
+                            <div class="relative mt-5 border border-[#E7E5DD] rounded-2xl bg-white p-4 mb-4">
+                                <span class="absolute -top-2.5 left-4 bg-[#2B2A26] text-white text-[9.5px] font-semibold px-2.5 py-0.5 rounded-full tracking-wide">3 · TRAIN</span>
+                                <div class="flex items-center justify-between gap-3 mt-1 flex-wrap">
+                                    <div class="text-[11.5px] text-[#6b6b6b]"><b class="text-[#1f2328]">{{ sources.length }} source{{ sources.length===1?'':'s' }} · {{ docs.length }} doc{{ docs.length===1?'':'s' }} · {{ activeInstr + activeExamples }} rule{{ (activeInstr+activeExamples)===1?'':'s' }}</b> routed · pending review</div>
+                                    <div v-if="canEdit" class="flex gap-2 shrink-0">
+                                        <button type="button" class="text-[11.5px] border border-[#E7E5DD] rounded-lg px-3 py-2 text-[#6b6b6b] hover:bg-[#faf8f3] font-medium" @click="activeTab='sources'">Review routing</button>
+                                        <button type="button" :disabled="trainingAll || !sources.length" class="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-white bg-[#C2683F] hover:bg-[#A8542F] rounded-lg px-3.5 py-2 transition-colors disabled:opacity-50" @click="runFullTrain">
+                                            <Spinner v-if="trainingAll" class="h-3.5 w-3.5 text-white" />
+                                            <UIcon v-else name="i-heroicons-bolt" class="w-3.5 h-3.5" />
+                                            {{ trainingAll ? 'Training…' : 'Auto-train everything' }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-[11px] text-[#9a958c] mt-2">One pass: profile data · extract knowledge · bind skill to columns · apply rules · mine joins · write goldens · build artifacts. Disabled until ≥1 source is added.</p>
+                            </div>
+
+                            <!-- DETAILS (shown once trained) -->
+                            <template v-if="sources.length">
 
                                 <!-- STAT GRID -->
                                 <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-4">
@@ -954,6 +1020,32 @@
                             <StudioTeach :studio-id="studioId" :sources="sources" :can-edit="canEdit" />
                         </section>
 
+                        <!-- INTELLIGENCE — 8 hybrid layers (read-only v1, :forceLayer pinned) -->
+                        <section v-else-if="activeTab === 'i_profiler'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'profiler'" />
+                        </section>
+                        <section v-else-if="activeTab === 'i_codeenrich'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'codeenrich'" />
+                        </section>
+                        <section v-else-if="activeTab === 'i_metrics'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'metrics'" />
+                        </section>
+                        <section v-else-if="activeTab === 'i_lazy'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'lazy'" />
+                        </section>
+                        <section v-else-if="activeTab === 'i_insights'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'insights'" />
+                        </section>
+                        <section v-else-if="activeTab === 'i_forecast'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'forecast'" />
+                        </section>
+                        <section v-else-if="activeTab === 'i_golden'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'golden'" />
+                        </section>
+                        <section v-else-if="activeTab === 'i_search'">
+                            <StudioIntelligence :studio-id="studioId" :sources="sources" :can-edit="canEdit" :forceLayer="'search'" />
+                        </section>
+
                         <!-- EVALS -->
                         <section v-else-if="activeTab === 'evals'">
                             <StudioEvals :studio-id="studioId" :sources="sources" :can-edit="canEdit" />
@@ -1105,6 +1197,52 @@
                 @created="onUploadCreated"
             />
 
+            <!-- Connect a source (46 connectors) → creates org source, auto-pins -->
+            <AddConnectionModal
+                v-model="showConnectModal"
+                :initial-selected-type="connectInitialType"
+                @created="onConnectCreated"
+            />
+
+            <!-- Add a source: org-library picker popup (pin existing / + New connection) -->
+            <UModal v-model="addOpen" :ui="{ width: 'sm:max-w-2xl' }">
+                <div class="bg-white rounded-xl overflow-hidden">
+                    <div class="flex items-center justify-between px-4 py-3 border-b border-[#EFEDE6]">
+                        <div>
+                            <h3 class="text-sm font-semibold text-[#1f2328]" style="font-family: ui-serif, Georgia, serif">Add a source</h3>
+                            <p class="text-[11px] text-[#9a958c] mt-0.5">Org library · {{ allAgents.length }} connection{{ allAgents.length===1?'':'s' }} · pinning scopes one to this agent</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <NuxtLink to="/connectors" class="text-[10.5px] text-[#C2683F] hover:text-[#A8542F] font-medium">Manage in Connectors →</NuxtLink>
+                            <button type="button" class="text-[#9a958c] hover:text-[#6b6b6b]" @click="addOpen = false"><UIcon name="i-heroicons-x-mark" class="w-5 h-5" /></button>
+                        </div>
+                    </div>
+                    <div class="px-4 py-3 border-b border-[#EFEDE6]">
+                        <input v-model="orgSearch" type="text" placeholder="Search by name, host, type…  (postgres, prod, fabric…)" class="w-full text-xs border border-[#E7E5DD] rounded-lg px-2.5 py-2 text-[#1f2328] placeholder-[#9a958c] focus:outline-none focus:border-[#C2683F]" />
+                    </div>
+                    <div class="max-h-[52vh] overflow-y-auto">
+                        <div v-if="loadingAgents" class="text-[11px] text-[#9a958c] py-6 text-center">Loading library…</div>
+                        <template v-else>
+                            <div v-for="a in filteredOrgSources" :key="a.id" class="flex items-center gap-2.5 px-4 py-2.5 border-b border-[#F4F2EC] last:border-0">
+                                <span class="w-8 h-8 rounded-lg bg-[#FBFAF6] border border-[#E7E5DD] flex items-center justify-center shrink-0"><DataSourceIcon v-if="connTypeOf(a)" class="h-4" :type="connTypeOf(a)" /><UIcon v-else name="i-heroicons-circle-stack" class="w-4 h-4 text-[#9a958c]" /></span>
+                                <div class="min-w-0">
+                                    <div class="text-[13px] font-semibold text-[#1f2328] truncate">{{ a.name || a.id }}</div>
+                                    <div class="text-[10.5px] text-[#9a958c] truncate">{{ connTypeOf(a) || 'data source' }}<template v-if="connHostOf(a)"> · {{ connHostOf(a) }}</template></div>
+                                </div>
+                                <span class="ms-auto shrink-0">
+                                    <span v-if="isPinned(a.id)" class="text-[11px] font-semibold text-[#2F6F4F] bg-[#E7F1EB] border border-[#cfe6da] rounded-md px-3 py-1.5">✓ Pinned</span>
+                                    <button v-else type="button" class="text-[11px] font-semibold text-white bg-[#C2683F] hover:bg-[#A8542F] rounded-md px-4 py-1.5" @click="pinSource(a)">Pin</button>
+                                </span>
+                            </div>
+                            <div v-if="!filteredOrgSources.length" class="text-[11px] text-[#9a958c] py-5 text-center">{{ orgSearch ? 'No match.' : 'No connections yet — create your first below.' }}</div>
+                        </template>
+                    </div>
+                    <button type="button" :disabled="!canEdit" class="w-full flex items-center gap-2 px-4 py-3 text-[12.5px] font-semibold text-[#C2683F] hover:bg-[#F6EFEA] border-t border-dashed border-[#E7E5DD] disabled:opacity-50" @click="openConnect()">
+                        <span class="w-5 h-5 rounded-md bg-[#F6EBE3] text-[#C2683F] grid place-items-center font-bold">+</span> New connection — pick a type (46)
+                    </button>
+                </div>
+            </UModal>
+
             <!-- Add skill modal -->
             <UModal v-model="showAddSkill" :ui="{ width: 'sm:max-w-md' }">
                 <div class="p-6">
@@ -1185,6 +1323,7 @@ import ShareModal from '~/components/studio/ShareModal.vue'
 import ArtifactsPanel from '~/components/studio/ArtifactsPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import UploadSpreadsheetModal from '~/components/data/UploadSpreadsheetModal.vue'
+import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import Spinner from '~/components/Spinner.vue'
 // Data Agent parity tabs (additive, flag-gated by the Studios workspace itself).
 import StudioConnection from '~/components/studio/StudioConnection.vue'
@@ -1195,6 +1334,7 @@ import StudioEvals from '~/components/studio/StudioEvals.vue'
 import StudioTeach from '~/components/studio/StudioTeach.vue'
 import StudioSkills from '~/components/studio/StudioSkills.vue'
 import StudioMonitoring from '~/components/studio/StudioMonitoring.vue'
+import StudioIntelligence from '~/components/studio/StudioIntelligence.vue'
 
 definePageMeta({ auth: true, layout: 'default' })
 
@@ -1269,6 +1409,16 @@ const pretrainResult = ref<any>(null)
 const showShare = ref(false)
 const showAddSource = ref(false)
 const showUploadSource = ref(false)
+// Auto-pilot "Connect a source" — the 46 warehouse connectors. Connecting one
+// creates an org-level data source (best practice: credentials live once in the
+// org library), which we then auto-pin/scope to this studio.
+const showConnectModal = ref(false)
+const connectInitialType = ref<string | undefined>(undefined)
+const connectorTypes = ref<any[]>([])
+const connectorsLoaded = ref(false)
+const connExpanded = ref(false)
+const connShowAll = ref(false)
+const connSearch = ref('')
 const showAddSkill = ref(false)
 const deleting = ref(false)
 const creatingChat = ref(false)
@@ -1550,13 +1700,19 @@ async function runFullTrain() {
         const kick = (data.value as any) || {}
         if (kick.status === 'error') { act.fail(kick.error || 'Could not start training'); return }
         act.log('Training started in background…')
-        // poll up to ~3 min; the job survives even if we stop polling
+        // poll up to ~6 min; the job survives even if we stop polling. Only log
+        // when the message actually CHANGES so a slow stage (profiling 200+ cols)
+        // doesn't spam the same line every 1.8s.
         let terminal = ''
-        for (let i = 0; i < 100 && !terminal; i++) {
+        let lastMsg = ''
+        for (let i = 0; i < 200 && !terminal; i++) {
             await new Promise(r => setTimeout(r, 1800))
             const { data: s } = await useMyFetch<any>(`/studios/${studioId.value}/train/status`, { method: 'GET' })
             const st = (s.value as any) || {}
-            if (st.step) act.log(`${TRAIN_STEP_LABEL[st.step] || st.step} · ${st.pct || 0}%`)
+            if (st.step) {
+                const msg = `${TRAIN_STEP_LABEL[st.step] || st.step} · ${st.pct || 0}%${st.note ? ' · ' + st.note : ''}`
+                if (msg !== lastMsg) { act.log(msg); lastMsg = msg }
+            }
             if (st.status === 'done') { terminal = 'done'; act.done('Studio trained — agent ready.') }
             else if (st.status === 'error') { terminal = 'error'; act.fail(st.error || 'Training failed') }
         }
@@ -1888,6 +2044,16 @@ const tabs = computed(() => [
     ...(packsEnabled.value ? [{ value: 'skills', label: 'Skills', icon: 'i-heroicons-puzzle-piece', group: 'behavior' }] : []),
     // Skills hidden — off platform-wide for stability; a grounded agent answers from
     // data + knowledge. (Re-add with group:'behavior' to expose.)
+    // INTELLIGENCE — the 8 hybrid capability layers (Wave 1+2). Additive group;
+    // each item mounts StudioIntelligence pinned via :forceLayer (read-only v1).
+    { value: 'i_profiler', label: 'Deep Profiler', icon: 'i-heroicons-rectangle-group', group: 'intelligence' },
+    { value: 'i_codeenrich', label: 'Code Enrich', icon: 'i-heroicons-code-bracket', group: 'intelligence' },
+    { value: 'i_metrics', label: 'Verified Metrics', icon: 'i-heroicons-lock-closed', group: 'intelligence' },
+    { value: 'i_lazy', label: 'Lazy Profile', icon: 'i-heroicons-arrow-path', group: 'intelligence' },
+    { value: 'i_insights', label: 'Proactive Insights', icon: 'i-heroicons-sparkles', group: 'intelligence' },
+    { value: 'i_forecast', label: 'Forecasting', icon: 'i-heroicons-presentation-chart-line', group: 'intelligence' },
+    { value: 'i_golden', label: 'Golden Queries', icon: 'i-heroicons-star', group: 'intelligence' },
+    { value: 'i_search', label: 'Hybrid Search + KG', icon: 'i-heroicons-share', group: 'intelligence' },
     { value: 'evals', label: t('studio.tabEvals') || 'Evals', icon: 'i-heroicons-beaker', group: 'operate' },
     { value: 'monitoring', label: t('studio.tabMonitoring') || 'Monitoring', icon: 'i-heroicons-chart-bar', group: 'operate' },
     { value: 'artifacts', label: t('studio.tabArtifacts'), icon: 'i-heroicons-document-text', group: 'operate' },
@@ -1903,6 +2069,7 @@ const navGroups = computed(() => {
         { key: 'main', label: '' },
         { key: 'knowledge', label: 'Knowledge' },
         { key: 'behavior', label: 'Behavior' },
+        { key: 'intelligence', label: 'Intelligence' },
         { key: 'operate', label: 'Operate' },
         { key: 'manage', label: 'Manage' },
     ]
@@ -2003,6 +2170,43 @@ const pinnableAgents = computed(() => {
     return allAgents.value.filter(a => !pinnedIds.has(String(a.id)))
 })
 
+// ---- Auto-pilot "Add a source": inline org-library picker (pin) + "+ New" ----
+// Merges the old Connect + Pin tiles. The org library is the single source of
+// truth; "+ New" opens the shared AddConnectionModal (owns the 46-type grid),
+// which writes to the org registry and auto-pins here.
+const addOpen = ref(false)
+const orgSearch = ref('')
+async function loadOrgSources() {
+    loadingAgents.value = true
+    try {
+        const { data, error } = await useMyFetch<any[]>('/data_sources', { method: 'GET' })
+        if (error?.value) throw error.value
+        allAgents.value = data.value || []
+    } catch (e: any) {
+        console.error('Failed to load org library:', e)
+        allAgents.value = []
+    } finally {
+        loadingAgents.value = false
+    }
+}
+function openAddPicker() {
+    addOpen.value = true
+    loadOrgSources()
+}
+const isPinned = (id: any) => sources.value.some(s => String(s.agent_id) === String(id))
+function connTypeOf(a: any) { return a?.type || (a?.connections || [])[0]?.type || '' }
+function connHostOf(a: any) {
+    const c = (a?.connections || [])[0]?.config || a?.config || {}
+    const host = c.host || c.account || c.server || c.endpoint || ''
+    const db = c.database || c.dbname || c.db || ''
+    return [host, db].filter(Boolean).join(' / ')
+}
+const filteredOrgSources = computed(() => {
+    const q = orgSearch.value.trim().toLowerCase()
+    if (!q) return allAgents.value
+    return allAgents.value.filter((a: any) => `${a.name || ''} ${connTypeOf(a)} ${connHostOf(a)}`.toLowerCase().includes(q))
+})
+
 const openAddSource = async () => {
     showAddSource.value = true
     loadingAgents.value = true
@@ -2034,6 +2238,46 @@ const pinSource = async (agent: any) => {
 }
 
 const openUploadSource = () => { showUploadSource.value = true }
+
+// Auto-pilot "Connect a source": load the 46 connector types (drop file types —
+// those go through Upload), filter/slice for the grid, then connect → auto-pin.
+async function loadConnectorTypes() {
+    if (connectorsLoaded.value) return
+    try {
+        const { data } = await useMyFetch<any[]>('/available_data_sources', { method: 'GET' })
+        connectorTypes.value = (data.value || []).filter((d: any) => !['csv', 'excel', 'spreadsheet', 'file'].includes(String(d.type)))
+    } catch (e: any) {
+        console.error('Failed to load connectors:', e)
+        connectorTypes.value = []
+    } finally {
+        connectorsLoaded.value = true
+    }
+}
+const filteredConnectors = computed(() => {
+    const q = connSearch.value.trim().toLowerCase()
+    let list = connectorTypes.value
+    if (q) list = list.filter((d: any) => `${d.title || ''} ${d.label || ''} ${d.type || ''}`.toLowerCase().includes(q))
+    return (connShowAll.value || q) ? list : list.slice(0, 11)
+})
+function openConnect(type?: string) {
+    addOpen.value = false   // close the picker so the create modal isn't stacked under it
+    connectInitialType.value = type
+    showConnectModal.value = true
+}
+// AddConnectionModal created an org data source → auto-pin/scope it to this studio.
+const onConnectCreated = async (conn: any) => {
+    showConnectModal.value = false
+    const id = conn?.id || conn?.data_source_id
+    if (!id) { await fetchSources(); return }
+    try {
+        await pinSource({ id })
+        await Promise.all([fetchSources(), loadOrgSources()])
+        toast.add({ title: conn?.name ? `“${conn.name}” connected & pinned` : 'Source connected & pinned', color: 'green', icon: 'i-heroicons-check-circle' })
+    } catch (e: any) {
+        console.error('Failed to auto-pin connected source:', e)
+        toast.add({ title: t('studio.actionFailed'), color: 'red' })
+    }
+}
 
 // Upload modal created a NEW Data Agent → auto-pin it to this studio (reuse the
 // same pinSource path: POST /studios/{id}/sources {agent_id}), then refresh.

@@ -40,6 +40,23 @@ class ResolveMetricMatch(BaseModel):
     sql_calc: str = ""
     owner: Optional[str] = None
     data_source_id: str = ""
+    # --- VERIFIED_METRICS fields (populated only when flag is ON + is_locked) ---
+    is_locked: bool = False
+    live_value: Optional[float] = Field(
+        None,
+        description=(
+            "Live scalar value computed by executing sql_calc read-only. "
+            "Set only when VERIFIED_METRICS is ON and the metric is locked."
+        ),
+    )
+    drift_note: Optional[str] = Field(
+        None,
+        description=(
+            "Human-readable note about the % change between the previous "
+            "last_value and the newly computed live_value. None when there "
+            "is no prior value or the flag is OFF."
+        ),
+    )
 
 
 class ResolveMetricOutput(BaseModel):

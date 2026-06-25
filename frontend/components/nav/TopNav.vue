@@ -18,9 +18,22 @@
 
       <!-- ============ Desktop: grouped dropdown menubar ============ -->
       <div class="hidden sm:flex items-center gap-0.5">
+        <template v-for="group in visibleGroups" :key="group.title">
+        <!-- Direct top-level tab (no dropdown), e.g. Agent Studios -->
+        <NuxtLink
+          v-if="group.direct"
+          :to="group.direct"
+          :class="[
+            'flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors',
+            isGroupActive(group)
+              ? 'text-gray-900 bg-gray-100'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          ]"
+        >
+          <span>{{ $t(group.title) }}</span>
+        </NuxtLink>
         <UPopover
-          v-for="group in visibleGroups"
-          :key="group.title"
+          v-else
           :popper="{ placement: 'bottom-start', offsetDistance: 4 }"
           :ui="{ width: 'max-w-none' }"
         >
@@ -110,6 +123,7 @@
             </div>
           </template>
         </UPopover>
+        </template>
       </div>
 
       <!-- ============ Right cluster ============ -->
@@ -348,6 +362,9 @@
   interface NavGroup {
     title: string
     items: NavItem[]
+    // When set, the group header is itself a direct route link (no dropdown) —
+    // used for top-level standalone tabs like Agent Studios.
+    direct?: string
   }
 
   // Settings tabs + the permission each requires — mirror of layouts/settings.vue.
@@ -412,9 +429,16 @@
   // Full group model — hrefs/icons/labels/gating ported verbatim from default.vue.
   const allGroups = computed<NavGroup[]>(() => [
     {
+      // Agent Studios — promoted to its own top-level tab (direct link, no dropdown).
+      title: 'nav.studios',
+      direct: '/studios',
+      items: [
+        { key: 'studios', href: '/studios', activePath: '/studios', icon: 'heroicons-film', label: 'nav.studios' },
+      ],
+    },
+    {
       title: 'nav.workspace',
       items: [
-        { key: 'studios', href: '/studios', icon: 'heroicons-film', label: 'nav.studios' },
         { key: 'reports', href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
         { key: 'dashboards', href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
         { key: 'presentations', href: '/presentations', icon: 'heroicons-presentation-chart-line', label: 'nav.presentations' },
@@ -479,7 +503,7 @@
   // Filter items per group; drop a group entirely if it has zero visible items.
   const visibleGroups = computed<NavGroup[]>(() =>
     allGroups.value
-      .map(g => ({ title: g.title, items: g.items.filter(itemVisible) }))
+      .map(g => ({ title: g.title, direct: g.direct, items: g.items.filter(itemVisible) }))
       .filter(g => g.items.length > 0)
   )
 

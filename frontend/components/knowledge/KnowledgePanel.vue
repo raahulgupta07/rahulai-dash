@@ -164,6 +164,16 @@
 
 <script setup lang="ts">
 import { useMyFetch } from '~/composables/useMyFetch'
+// Explicit imports: these siblings live in components/knowledge/, so Nuxt
+// auto-registers them as <KnowledgeSemanticTab> etc. (path prefix). Referencing
+// them by bare name in the template would silently resolve to nothing — blank
+// tab, no fetch, no error. Importing here binds the bare tags to the real
+// components regardless of auto-import naming.
+import SemanticTab from './SemanticTab.vue'
+import MetricsTab from './MetricsTab.vue'
+import QueriesTab from './QueriesTab.vue'
+import AssetsTab from './AssetsTab.vue'
+import ReviewTab from './ReviewTab.vue'
 
 interface Props { dataSourceId?: string; hideReview?: boolean; navLayout?: 'top' | 'left'; title?: string; subtitle?: string; forceTab?: string; hideNav?: boolean }
 const props = withDefaults(defineProps<Props>(), { dataSourceId: '', hideReview: false, navLayout: 'top', title: '', subtitle: '', forceTab: '', hideNav: false })

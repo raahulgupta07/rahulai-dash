@@ -179,19 +179,41 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             # Resolve pinned sources ONCE — reused across profiling + joins stages.
             sources = await _resolve_pinned_sources(db, studio, organization)
 
-            # --- Stage 1: profile all pinned sources (pct 40) -----------------
-            _set(sid, step="profiling", pct=10)
+            # --- Stage 1: profile all pinned sources (pct 10 -> 40) -----------
+            # Profiling N tables × many columns against a live connector can take
+            # minutes; without intra-stage feedback the UI looks frozen at 10%.
+            # A per-table progress callback interpolates pct across the 10..40
+            # slice and writes a human note ("RTM · 3/8 tables"), so the bar moves.
+            _set(sid, step="profiling", pct=10, note="starting")
             try:
                 from app.routes.column_profile import _profile_all_tables
 
                 profiled = 0
-                for ds in sources:
+                n_src = max(1, len(sources))
+                for si, ds in enumerate(sources):
+                    ds_name = getattr(ds, "name", None) or str(getattr(ds, "id", "?"))[:8]
+                    base = 10 + int(30 * si / n_src)      # this source's slice start
+                    span = 30 / n_src                      # pct width for this source
+
+                    def _on_table(done, total, table, written, _base=base, _span=span, _name=ds_name):
+                        pct = int(_base + _span * (done / max(1, total)))
+                        _set(sid, pct=min(39, max(10, pct)),
+                             note=f"{_name} · {done}/{total} tables")
+
                     try:
-                        written, _u, reports, _rows, _n = await _profile_all_tables(
-                            db, ds, str(ds.id)
+                        # Hard ceiling per source: a hung remote query (no
+                        # statement_timeout) must not freeze the train forever.
+                        written, _u, reports, _rows, _n = await asyncio.wait_for(
+                            _profile_all_tables(db, ds, str(ds.id), progress=_on_table),
+                            timeout=600,
                         )
                         if reports:
                             profiled += 1
+                        logger.info("train_orchestrator profiled %s: %s cols, %s tables",
+                                    ds_name, written, _n)
+                    except asyncio.TimeoutError:
+                        logger.warning("train_orchestrator profile TIMEOUT (600s) for %s", ds_name)
+                        _set(sid, note=f"{ds_name} · timed out, skipped")
                     except Exception as e:  # noqa: BLE001 - per-source fail-soft
                         logger.warning(
                             "train_orchestrator profile failed for %s: %s",
@@ -206,10 +228,101 @@ async def run_training(studio_id, organization_id, user_id) -> None:
                 except Exception:
                     pass
                 detail["profiling"] = f"error: {e}"
-            _set(sid, pct=40)
+            _set(sid, pct=40, note="")
             await _persist_db(db, studio, sid)
 
-            # --- Stage 1b: pack autobind (Phase 4) ----------------------------
+            # --- Stage 1a: deep profile v2 (Wave1 P1) -------------------------
+            # When flags.PROFILE_V2 is ON, run profile_table_v2 on every active
+            # table of each source AFTER the column profiler has written its data.
+            # Mirrors the Stage 4b (semantic_metrics) pattern: per-source fail-soft,
+            # single commit at the end.  Zero DB reads / writes when flag is OFF.
+            from app.settings.hybrid_flags import flags as _flags
+
+            if _flags.PROFILE_V2:
+                _set(sid, step="profile_v2", pct=41)
+                try:
+                    from sqlalchemy import select as _sel
+                    from app.models.datasource_table import DataSourceTable as _DST
+                    from app.ai.knowledge.profile_v2 import profile_table_v2 as _pv2
+
+                    pv2_count = 0
+                    for ds in sources:
+                        try:
+                            tbl_rows = list(
+                                (
+                                    await db.execute(
+                                        _sel(_DST)
+                                        .where(_DST.datasource_id == str(ds.id))
+                                        .where(_DST.is_active.is_(True))
+                                    )
+                                ).scalars().all()
+                            )
+                            for tbl_row in tbl_rows:
+                                try:
+                                    _pv2(tbl_row)
+                                    pv2_count += 1
+                                except Exception as _te:  # noqa: BLE001
+                                    logger.debug(
+                                        "train_orchestrator profile_v2 table %s: %s",
+                                        getattr(tbl_row, "name", "?"),
+                                        _te,
+                                    )
+                        except Exception as _se:  # noqa: BLE001 - per-source fail-soft
+                            logger.warning(
+                                "train_orchestrator profile_v2 source %s: %s",
+                                getattr(ds, "id", "?"),
+                                _se,
+                            )
+                    await db.commit()
+                    detail["profile_v2"] = f"ok ({pv2_count} tables)"
+                except Exception as e:  # noqa: BLE001
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    detail["profile_v2"] = f"error: {e}"
+
+            # --- Stage 1b: code enrich (Wave1 P6) --------------------------------
+            # When flags.CODE_ENRICH is ON, fetch view/table DDL for each active
+            # table and LLM-extract grain + derived-column formulas + population.
+            # Stores in metadata_json['pipeline_logic'].  Mirrors Stage 1a pattern.
+            # Zero DB reads/writes when flag is OFF.
+            if _flags.CODE_ENRICH:
+                _set(sid, step="code_enrich", pct=42)
+                try:
+                    from app.ai.knowledge.code_enrich import enrich_source
+                    from app.services.llm_service import LLMService as _LLMSvc
+
+                    _ce_model = await _LLMSvc().get_default_model(
+                        db, organization, user, is_small=True
+                    )
+                    ce_enriched = 0
+                    ce_skipped = 0
+                    for ds in sources:
+                        try:
+                            r = await enrich_source(
+                                db,
+                                data_source=ds,
+                                organization=organization,
+                                model=_ce_model,
+                            )
+                            ce_enriched += int((r or {}).get("enriched", 0) or 0)
+                            ce_skipped += int((r or {}).get("skipped", 0) or 0)
+                        except Exception as _ce_err:  # noqa: BLE001 - per-source fail-soft
+                            logger.warning(
+                                "train_orchestrator code_enrich failed for %s: %s",
+                                getattr(ds, "id", "?"),
+                                _ce_err,
+                            )
+                    detail["code_enrich"] = f"ok ({ce_enriched} enriched, {ce_skipped} skipped)"
+                except Exception as e:  # noqa: BLE001
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    detail["code_enrich"] = f"error: {e}"
+
+            # --- Stage 1c: pack autobind (Phase 4) ----------------------------
             # Try every library pack against the freshly-profiled columns; write
             # pending/dormant StudioBoundPack rows. Then render the studio's ACTIVE
             # skills into a context block that biases the query/eval generators.
@@ -337,6 +450,81 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             except Exception as e:  # noqa: BLE001
                 detail["artifacts"] = f"error: {e}"
             _set(sid, pct=92)
+
+            # --- Stage 4b: semantic layer + metrics catalog (pct 93) ----------
+            # Opt-in surfaces. Only runs when a flag is on. Proposals are AI-
+            # pending; auto-approved here (like every other Auto-train stage) so
+            # the Semantic / Metrics tabs are populated AND live after the one-
+            # button train instead of sitting empty.
+            from app.settings.hybrid_flags import flags as _flags
+
+            if _flags.SEMANTIC_LAYER or _flags.METRICS_CATALOG:
+                _set(sid, step="semantic_metrics", pct=93)
+                try:
+                    from sqlalchemy import update as _sql_update
+
+                    from app.ai.brain.knowledge_proposer import (
+                        propose_knowledge_from_schema,
+                    )
+                    from app.models.metric_definition import MetricDefinition
+                    from app.models.semantic_table import SemanticTable
+                    from app.services.llm_service import LLMService
+
+                    focus = (
+                        "both"
+                        if (_flags.SEMANTIC_LAYER and _flags.METRICS_CATALOG)
+                        else ("semantic" if _flags.SEMANTIC_LAYER else "metrics")
+                    )
+                    model = await LLMService().get_default_model(
+                        db, organization, user, is_small=True
+                    )
+                    sem_ids: list[str] = []
+                    met_ids: list[str] = []
+                    for ds in sources:
+                        try:
+                            r = await propose_knowledge_from_schema(
+                                db,
+                                organization=organization,
+                                data_source=ds,
+                                model=model,
+                                focus=focus,
+                            )
+                        except Exception as e:  # noqa: BLE001 - per-source fail-soft
+                            logger.warning(
+                                "train_orchestrator semantic/metrics failed for %s: %s",
+                                getattr(ds, "id", "?"),
+                                e,
+                            )
+                            continue
+                        sem_ids.extend((r or {}).get("semantics", []) or [])
+                        met_ids.extend((r or {}).get("metrics", []) or [])
+
+                    # Auto-approve the fresh proposals (Auto-train auto-approves;
+                    # keeps the Review queue empty and the rows live in context).
+                    if sem_ids:
+                        await db.execute(
+                            _sql_update(SemanticTable)
+                            .where(SemanticTable.id.in_(sem_ids))
+                            .values(status="approved")
+                        )
+                    if met_ids:
+                        await db.execute(
+                            _sql_update(MetricDefinition)
+                            .where(MetricDefinition.id.in_(met_ids))
+                            .values(status="approved")
+                        )
+                    if sem_ids or met_ids:
+                        await db.commit()
+                    detail["semantic_metrics"] = (
+                        f"ok ({len(sem_ids)} semantic, {len(met_ids)} metrics)"
+                    )
+                except Exception as e:  # noqa: BLE001
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    detail["semantic_metrics"] = f"error: {e}"
+                _set(sid, pct=94)
 
             # --- Stage 5: value-overlap join mining (pct 98) ------------------
             # Proven-SQL joins need query history; value-overlap works on day 1.

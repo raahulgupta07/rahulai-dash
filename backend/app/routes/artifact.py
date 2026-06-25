@@ -26,6 +26,7 @@ from app.schemas.artifact_schema import (
     ArtifactListSchema,
     ArtifactCreate,
     ArtifactUpdate,
+    PresentationListSchema,
 )
 from app.services.artifact_service import ArtifactService
 from app.services.artifact_codegen import (
@@ -232,6 +233,44 @@ async def create_artifact(
         organization_id=organization.id,
     )
     return ArtifactSchema.model_validate(artifact)
+
+
+@router.get("/presentations", response_model=List[PresentationListSchema])
+@requires_permission('view_reports')
+async def list_presentations(
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """List every generated presentation (slides artifact) for the org."""
+    artifacts = await service.list_presentations(db, organization.id)
+    out: List[PresentationListSchema] = []
+    for a in artifacts:
+        content = a.content or {}
+        previews = content.get("preview_images") or []
+        slides = content.get("slides") or []
+        slide_count = len(previews) or len(slides)
+        report_title = None
+        try:
+            report_title = a.report.title if a.report else None
+        except Exception:
+            report_title = None
+        out.append(
+            PresentationListSchema(
+                id=str(a.id),
+                report_id=str(a.report_id),
+                title=a.title,
+                version=a.version,
+                status=a.status,
+                slide_count=slide_count,
+                has_preview=bool(previews),
+                pptx_ready=bool(a.pptx_path) and a.status != "failed",
+                report_title=report_title,
+                created_at=a.created_at,
+                updated_at=a.updated_at,
+            )
+        )
+    return out
 
 
 @router.get("/{artifact_id}", response_model=ArtifactSchema)

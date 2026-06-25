@@ -52,11 +52,27 @@ class ArtifactSchema(ArtifactBase):
     generation_prompt: Optional[str] = None
     completion_id: Optional[str] = None
     status: str = "completed"
+    pptx_path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class PresentationListSchema(BaseModel):
+    """Schema for the org-wide presentations gallery."""
+    id: str
+    report_id: str
+    title: Optional[str]
+    version: int
+    status: str = "completed"
+    slide_count: int = 0
+    has_preview: bool = False
+    pptx_ready: bool = False
+    report_title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ArtifactListSchema(BaseModel):

@@ -448,6 +448,33 @@ class Coder:
                             similar_successful_code_snippets = ""
             except Exception:
                 similar_successful_code_snippets = ""
+
+            # ── Task 8: live query-learning reuse (flag HYBRID_QUERY_LEARNING) ──
+            # Inject the closest APPROVED learned queries (captured from prior
+            # successful live runs, review-gated) so the model can reuse a proven
+            # approach. Mirrors the proven-snippet injection above. Empty string
+            # (byte-identical prompt) when the flag is off or nothing matches.
+            learned_queries_section = ""
+            try:
+                from app.settings.hybrid_flags import flags as _hflags
+                if _hflags.QUERY_LEARNING and self.context_hub is not None:
+                    _db = getattr(self.context_hub, "db", None)
+                    _org = getattr(self.context_hub, "organization", None)
+                    _dss = getattr(self.context_hub, "data_sources", None) or []
+                    _ds_ids = [str(d.id) for d in _dss]
+                    _q = (context.user_prompt or context.interpreted_prompt or prompt or "")
+                    if _db is not None and _org is not None and _ds_ids:
+                        from app.ai.knowledge import query_learning as _ql
+                        _items = await _ql.recall_learned_queries(
+                            _db,
+                            organization_id=str(_org.id),
+                            data_source_ids=_ds_ids,
+                            question=_q,
+                        )
+                        learned_queries_section = _ql.render_learned_queries_block(_items)
+            except Exception:
+                learned_queries_section = ""
+
             text = f"""
             Role: data engineer and data scientist working on the user's analytics request.
 
@@ -510,6 +537,9 @@ class Coder:
             {similar_successful_code_snippets}
             </similar_successful_code_snippets>
 
+            - Learned queries (PROVEN, approved SQL from prior successful answers — reuse/adapt when relevant):
+            {learned_queries_section}
+
             **Guidelines and Requirements**:
 
             0. **Data Modeling**:
@@ -551,6 +581,7 @@ class Coder:
                  * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
                - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
                - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
+               - **Multi-source / cross-source UNION (HARD RULE)**: When you combine many same-schema tables or sources (e.g. one month-table per source), query each source separately, then concatenate the per-source frames and **assign the combined result to a variable named exactly `df`** before returning — e.g. `df = pd.concat([df_jan, df_feb, df_mar], ignore_index=True)` then `return df`. Do NOT `return` a frame built under any other name (e.g. `combined`, `result`, `frames`) and do NOT write `return df` on a branch where `df` was never assigned — that raises `name 'df' is not defined`. The variable `df` MUST exist and hold the final DataFrame on EVERY code path that reaches a `return`.
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -600,6 +631,7 @@ class Coder:
                - Return ONLY the Python function code for `generate_df`.
 
             8. **End of code**:
+               - The final DataFrame MUST be held in a variable named exactly `df`. Even in the multi-source/UNION path, assign the concatenated result to `df` (`df = pd.concat([...], ignore_index=True)`) before this step — never `return` a frame under a different name and never reference `df` on a branch where it was not assigned.
                - Before returning the df — print("Final df Info:", df.info())
                {data_preview_instruction}
                - Return the df.

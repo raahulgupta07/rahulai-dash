@@ -4786,6 +4786,21 @@ onMounted(async () => {
 		}
 	}
 
+	// Slides-first layout (URL ?focus=slides) — presentation on the big main
+	// panel with the chat docked on the right. Reuses the dashboard-first flip,
+	// just pointing the main panel at the slides view instead of the dashboard.
+	if (route.query.focus === 'slides' && !isExcel.value) {
+		if (isMobile.value) {
+			mobileView.value = 'dashboard'
+		} else {
+			dashboardFirst.value = true
+			dockCollapsed.value = false
+			userPinnedView.value = true
+			if (!isSplitScreen.value) toggleSplitScreen()
+			setPanelView('slides', true)
+		}
+	}
+
 	await slowLoads
 
 	// Handle new_message query parameter after everything is loaded

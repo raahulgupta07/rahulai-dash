@@ -160,6 +160,18 @@ class InspectDataMCPTool(MCPTool):
                 error_message="No data sources could be connected.",
             ).model_dump()
         
+        # ── P5: Lazy-profile on miss (flag PROFILE_V2, kill-switch LAZY_PROFILE_V2_DISABLED) ──
+        # Tables added AFTER training have no profile_v2 dim-catalog yet. Detect and
+        # profile them inline before codegen so the agent sees fresh column roles.
+        # Fail-soft: any error here must not break the inspection step. OFF -> byte-identical.
+        try:
+            from app.settings.hybrid_flags import flags as _hflags_p5
+            if _hflags_p5.PROFILE_V2:
+                from app.ai.tools.mcp.lazy_profile import lazy_profile_tables
+                await lazy_profile_tables(db, rich_ctx.tables_by_source)
+        except Exception:
+            _logger.debug("MCP inspect_data lazy-profile skipped", exc_info=True)
+
         # Build codegen context using the rich context
         runtime_ctx = {
             "settings": rich_ctx.org_settings,
@@ -168,7 +180,7 @@ class InspectDataMCPTool(MCPTool):
             "excel_files": [],
             "context_view": rich_ctx.context_hub.get_view(),
         }
-        
+
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
             user_prompt=input_data.prompt,

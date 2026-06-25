@@ -1,6 +1,6 @@
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
-export default defineNuxtPlugin(async (nuxtApp) => {
+export default defineNuxtPlugin(async () => {
   const { getSession, data: sessionData } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
   const permissions = usePermissions()
@@ -40,6 +40,19 @@ export default defineNuxtPlugin(async (nuxtApp) => {
   // Initial load: fetch the session (and ensure an org is selected) once.
   const loadPermissions = async () => {
     try {
+      // whoami (getSession) is a Bearer-authenticated route. On a cold/anon
+      // boot — sign-in page, expired/absent token, pre-cookie-rehydration — no
+      // token exists yet, so calling getSession() hits /users/whoami with no
+      // Authorization header and the backend correctly 401s (nuxt-auth then
+      // logs "unable to extract session"). That 401 is spurious noise, not a
+      // real auth failure: the Bearer-token data calls succeed once a token is
+      // present. Skip the session fetch entirely when there's no token so the
+      // anon path stays quiet; the post-login getSession({force:true}) in the
+      // sign-in flow still populates the session normally.
+      const { rawToken } = useAuthState()
+      if (!rawToken.value) {
+        return
+      }
       const session = await getSession()
       await ensureOrganization()
       resolveFromSession(session)

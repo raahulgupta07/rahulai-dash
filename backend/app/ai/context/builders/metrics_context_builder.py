@@ -73,17 +73,29 @@ class MetricsContextBuilder:
             k = _top_k()
             if query and query.strip() and len(rows) > k:
                 rows = _rank_metrics(query, rows, k)
-            return MetricsCatalogSection(
-                items=[
+            verified_on = flags.VERIFIED_METRICS
+            items = []
+            for r in rows:
+                is_locked = bool(getattr(r, "is_locked", False)) if verified_on else False
+                last_val: Optional[float] = None
+                if verified_on and is_locked:
+                    try:
+                        raw = getattr(r, "last_value", None)
+                        if raw is not None:
+                            last_val = float(raw)
+                    except Exception:
+                        last_val = None
+                items.append(
                     MetricItem(
                         name=r.name,
                         definition=r.definition or "",
                         table_ref=r.table_ref or "",
                         sql_calc=r.sql_calc or "",
                         owner=r.owner,
+                        is_locked=is_locked,
+                        last_value=last_val,
                     )
-                    for r in rows
-                ]
-            )
+                )
+            return MetricsCatalogSection(items=items)
         except Exception:
             return MetricsCatalogSection(items=[])

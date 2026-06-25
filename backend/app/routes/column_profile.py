@@ -45,6 +45,10 @@ from app.settings.hybrid_flags import flags
 from app.ai.knowledge.column_intel import profile_data_source
 from app.ai.knowledge.schema_drift import compute_schema_drift
 
+import logging
+import time
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["column-intel"])
 
@@ -272,7 +276,7 @@ def _write_watermark(table, row_count) -> None:
         pass
 
 
-async def _profile_all_tables(db, ds, data_source_id, explicit_table=None, force=False):
+async def _profile_all_tables(db, ds, data_source_id, explicit_table=None, force=False, progress=None):
     """Profile EVERY active table of the data source (a connector has many).
 
     Returns ``(columns_written, unmatched, reports, total_rows, table_count)`` —
@@ -305,7 +309,25 @@ async def _profile_all_tables(db, ds, data_source_id, explicit_table=None, force
     total_rows = 0
     done = 0
     skipped_unchanged = 0
-    for nm in names:
+    n_total = len(names)
+    ds_label = getattr(ds, "name", None) or str(data_source_id)[:8]
+
+    def _report_progress(idx, table_name, written, skipped):
+        """Emit a per-table log line + invoke the optional progress callback so
+        the caller (train orchestrator) can surface live progress to the UI."""
+        logger.info(
+            "[profile] %s · table %d/%d %r · %s (%d cols written)",
+            ds_label, idx, n_total, table_name,
+            "skipped (unchanged)" if skipped else "profiled", written,
+        )
+        if progress is not None:
+            try:
+                progress(done=idx, total=n_total, table=table_name, written=written)
+            except Exception:  # noqa: BLE001 — progress is best-effort, never fatal
+                pass
+
+    for i, nm in enumerate(names, start=1):
+        t0 = time.monotonic()
         try:
             tbl_row = by_norm_name.get(_norm(nm)) if nm else None
 
@@ -317,10 +339,14 @@ async def _profile_all_tables(db, ds, data_source_id, explicit_table=None, force
                     if cur is not None and cur == prev:
                         skipped_unchanged += 1
                         total_rows += cur
+                        _report_progress(i, nm, 0, skipped=True)
                         continue
 
+            logger.info("[profile] %s · table %d/%d %r · profiling…", ds_label, i, n_total, nm)
             rep = await profile_data_source(ds, table_name=nm)
             if not rep.get("ok"):
+                logger.warning("[profile] %s · table %r returned not-ok", ds_label, nm)
+                _report_progress(i, nm, 0, skipped=False)
                 continue
             w, u = await _store_profile(db, data_source_id, rep, only_table=nm)
             total_written += w
@@ -333,7 +359,11 @@ async def _profile_all_tables(db, ds, data_source_id, explicit_table=None, force
             if tbl_row is not None:
                 _write_watermark(tbl_row, rc)
             done += 1
-        except Exception:  # noqa: BLE001 — never let one table kill the batch
+            logger.info("[profile] %s · table %r done in %.1fs (%d cols)", ds_label, nm, time.monotonic() - t0, w)
+            _report_progress(i, nm, w, skipped=False)
+        except Exception as e:  # noqa: BLE001 — never let one table kill the batch
+            logger.warning("[profile] %s · table %r failed after %.1fs: %s", ds_label, nm, time.monotonic() - t0, e)
+            _report_progress(i, nm, 0, skipped=False)
             continue
 
     if reports:

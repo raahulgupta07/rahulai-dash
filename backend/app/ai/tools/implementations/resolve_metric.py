@@ -8,8 +8,18 @@ the canonical metric rather than re-deriving it.
 Self-gates on flags.METRICS_CATALOG: when the catalog is off the tool simply
 returns ``found=False`` (it never raises), so a fresh deploy behaves like
 upstream. Native ToolRegistry pattern (auto-registered via implementations/).
+
+VERIFIED_METRICS extension (flags.VERIFIED_METRICS):
+When this flag is ON and the resolved metric has is_locked=True, the tool
+executes the metric's sql_calc read-only (using the same _is_read_only_sql
+guard and DataSource.get_client().aexecute_query() path used by
+POST /metrics/{id}/test), returns the live scalar as live_value, persists
+last_value/last_value_at back to the row, and includes a drift_note
+showing the abs % change vs the prior last_value. When the flag is OFF the
+behaviour is identical to pre-P7 (no execution, no DB write).
 """
-from typing import AsyncIterator, Dict, Any, Type
+from datetime import datetime, timezone
+from typing import AsyncIterator, Dict, Any, Optional, Type
 import logging
 
 from pydantic import BaseModel
@@ -33,6 +43,116 @@ from app.models.metric_definition import MetricDefinition
 from app.ai.brain import bitemporal
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# VERIFIED_METRICS helpers (P7)
+# ---------------------------------------------------------------------------
+
+def _drift_note(prior: Optional[float], current: float) -> Optional[str]:
+    """Return a human-readable drift note or None when unavailable."""
+    if prior is None:
+        return None
+    try:
+        if prior == 0:
+            return f"prior value was 0; current value is {current:.4g} (infinite change)"
+        pct = abs((current - float(prior)) / float(prior)) * 100
+        direction = "up" if current > float(prior) else "down"
+        return (
+            f"drifted {direction} {pct:.2f}% vs prior value "
+            f"({float(prior):.4g} → {current:.4g})"
+        )
+    except Exception:
+        return None
+
+
+async def _execute_locked_metric(row: MetricDefinition, db, organization) -> Optional[float]:
+    """Execute sql_calc read-only and return the scalar (first cell of first row).
+
+    Returns None on any failure (guard rejection, execution error, non-scalar
+    result). Never raises — failures are surfaced via None + logged.
+    """
+    try:
+        from app.routes.knowledge import _is_read_only_sql  # local to avoid circular
+    except ImportError:
+        try:
+            # Fallback: minimal inline guard (covers the common case)
+            import re as _re
+
+            def _is_read_only_sql(sql: str) -> bool:  # type: ignore[override]
+                if not sql or not sql.strip():
+                    return False
+                cleaned = _re.sub(r"/\*.*?\*/", " ", sql, flags=_re.DOTALL)
+                cleaned = _re.sub(r"--[^\n]*", " ", cleaned).strip()
+                body = cleaned.rstrip().rstrip(";")
+                if ";" in body:
+                    return False
+                first = body.lower().split(None, 1)[0] if body.split(None, 1) else ""
+                return first in ("select", "with")
+        except Exception:
+            return None
+
+    sql = (row.sql_calc or "").strip()
+    if not sql:
+        logger.debug("resolve_metric locked exec: empty sql_calc for metric %s", row.id)
+        return None
+    if not _is_read_only_sql(sql):
+        logger.warning(
+            "resolve_metric locked exec: sql_calc rejected by read-only guard for metric %s",
+            row.id,
+        )
+        return None
+
+    try:
+        from sqlalchemy import select as sa_select
+        from app.models.data_source import DataSource
+
+        ds_res = await db.execute(
+            sa_select(DataSource).where(
+                DataSource.id == row.data_source_id,
+                DataSource.organization_id == str(organization.id),
+            )
+        )
+        data_source = ds_res.scalar_one_or_none()
+        if data_source is None:
+            logger.warning(
+                "resolve_metric locked exec: data source %s not found for metric %s",
+                row.data_source_id, row.id,
+            )
+            return None
+
+        client = data_source.get_client()
+        df = await client.aexecute_query(sql)
+
+        if df is None or len(df) == 0:
+            return None
+        # Scalar: single-cell result (e.g. SELECT COUNT(*) FROM …)
+        val = df.iat[0, 0]
+        if val is None:
+            return None
+        # Coerce numpy/pandas scalar → python float
+        item_fn = getattr(val, "item", None)
+        if callable(item_fn):
+            val = item_fn()
+        return float(val)
+    except Exception as exc:
+        logger.warning("resolve_metric locked exec failed for metric %s: %s", row.id, exc)
+        return None
+
+
+async def _persist_last_value(row: MetricDefinition, value: float, db) -> None:
+    """Write last_value + last_value_at back to the metric row. Best-effort."""
+    try:
+        row.last_value = value
+        row.last_value_at = datetime.now(tz=timezone.utc).replace(tzinfo=None)  # naive UTC
+        await db.commit()
+        await db.refresh(row)
+    except Exception as exc:
+        logger.warning("resolve_metric: failed to persist last_value for metric %s: %s", row.id, exc)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 class ResolveMetricTool(Tool):
@@ -188,6 +308,25 @@ class ResolveMetricTool(Tool):
                 )
                 return
 
+            # --- VERIFIED_METRICS: execute locked sql_calc (P7) ----------------
+            live_value: Optional[float] = None
+            drift: Optional[str] = None
+            is_locked = bool(getattr(row, "is_locked", False))
+
+            if flags.VERIFIED_METRICS and is_locked:
+                prior_value: Optional[float] = None
+                try:
+                    raw_prior = getattr(row, "last_value", None)
+                    if raw_prior is not None:
+                        prior_value = float(raw_prior)
+                except Exception:
+                    prior_value = None
+
+                live_value = await _execute_locked_metric(row, db, organization)
+                if live_value is not None:
+                    drift = _drift_note(prior_value, live_value)
+                    await _persist_last_value(row, live_value, db)
+
             match = ResolveMetricMatch(
                 name=row.name,
                 definition=row.definition or "",
@@ -195,7 +334,21 @@ class ResolveMetricTool(Tool):
                 sql_calc=row.sql_calc or "",
                 owner=row.owner,
                 data_source_id=str(row.data_source_id),
+                is_locked=is_locked,
+                live_value=live_value,
+                drift_note=drift,
             )
+
+            summary = f"Resolved metric '{row.name}' -> {row.table_ref or 'n/a'}"
+            if flags.VERIFIED_METRICS and is_locked:
+                if live_value is not None:
+                    summary += f" [LOCKED, live_value={live_value:.4g}"
+                    if drift:
+                        summary += f", {drift}"
+                    summary += "]"
+                else:
+                    summary += " [LOCKED, exec failed — using definition only]"
+
             output = ResolveMetricOutput(
                 success=True,
                 found=True,
@@ -207,7 +360,7 @@ class ResolveMetricTool(Tool):
                 payload={
                     "output": output.model_dump(),
                     "observation": {
-                        "summary": f"Resolved metric '{row.name}' -> {row.table_ref or 'n/a'}",
+                        "summary": summary,
                         "artifacts": [
                             {
                                 "type": "metric_definition",
@@ -216,6 +369,9 @@ class ResolveMetricTool(Tool):
                                 "table_ref": match.table_ref,
                                 "sql_calc": match.sql_calc,
                                 "owner": match.owner,
+                                "is_locked": is_locked,
+                                "live_value": live_value,
+                                "drift_note": drift,
                             }
                         ],
                     },

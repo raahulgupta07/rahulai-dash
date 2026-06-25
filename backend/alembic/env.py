@@ -59,6 +59,7 @@ from app.models.studio import (  # hybrid Studios ST1 + Context Harness ST7/ST8
     StudioInstruction,
     StudioExample,
 )
+from app.models.result_cache import ResultCacheEntry  # hybrid Task 7 result cache
 from app.models.completion_feedback import CompletionFeedback
 from app.models.data_source_membership import DataSourceMembership
 from app.models.instruction_reference import InstructionReference
@@ -111,6 +112,7 @@ from app.models.usage_policy import (
     UsageCounter,
     UsageEvent,
 )
+from app.models.knowledge_search_index import KnowledgeSearchIndex  # hybrid P8 search scaffold
 
 from app.settings.config import settings
 

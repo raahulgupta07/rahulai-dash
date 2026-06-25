@@ -489,12 +489,25 @@ function cleanCredentials(creds: Record<string, any>): Record<string, any> {
   return Object.fromEntries(Object.entries(creds).filter(([_, v]) => v != null && v !== ''))
 }
 
+// Auto-name guard: a blank name must NOT collapse to the bare type (10 Postgres
+// would all read "postgres"). Derive a distinct name from the host/db so each
+// instance of the same connector type stays unambiguous in the org library.
+function derivedName(): string {
+  if (name.value && name.value.trim()) return name.value.trim()
+  const c: any = formData.config || {}
+  const host = c.host || c.account || c.server || c.endpoint || c.warehouse || ''
+  const db = c.database || c.dbname || c.db || c.project || ''
+  const title = selectedTitle.value || selectedType.value
+  const tail = [host, db].filter(Boolean).join('/')
+  return tail ? `${title} · ${tail}` : title
+}
+
 async function onSubmit() {
   if (submitting.value || !selectedType.value) return
   submitting.value = true
   try {
     const payload: any = {
-      name: name.value || selectedType.value,
+      name: derivedName(),
       type: selectedType.value,
       config: { ...formData.config, auth_type: selectedAuth.value || undefined },
       credentials: showSystemCredentialFields.value ? cleanCredentials(formData.credentials) : {},
@@ -510,7 +523,7 @@ async function onSubmit() {
     // Handle connection editing (uses /connections endpoint)
     if (isConnectionEdit.value && props.connectionId) {
       const connectionPayload: any = {
-        name: name.value || selectedType.value,
+        name: derivedName(),
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
         auth_policy: auth_policy.value
       }
@@ -546,7 +559,7 @@ async function onSubmit() {
     } else if (isCreateConnectionOnly.value) {
       // Create connection only (without agent)
       const connectionPayload = {
-        name: name.value || selectedType.value,
+        name: derivedName(),
         type: selectedType.value,
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
         credentials: showSystemCredentialFields.value ? cleanCredentials(formData.credentials) : {},
@@ -607,7 +620,7 @@ async function testConnection() {
     } else {
       // For new connections or data sources, test with form values
       const payload = {
-        name: name.value || selectedType.value,
+        name: derivedName(),
         type: selectedType.value,
         // Include auth_type so backend can select correct credentials schema (e.g., Snowflake keypair)
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },

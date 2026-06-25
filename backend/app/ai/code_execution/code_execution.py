@@ -746,6 +746,20 @@ class StreamingCodeExecutor:
                                 load_step=load_step, load_entity=load_entity,
                                 federate=federate, input_df=input_df,
                             )
+                            # ── df-binding defensive guard (P0 multi-source fix) ──
+                            # The multi-source / cross-source UNION path sometimes
+                            # builds the combined frame under a different name
+                            # (e.g. `combined`, `result`, `frames`) and `return df`
+                            # then raises a bare `NameError: name 'df' is not
+                            # defined` — which previously surfaced as an opaque
+                            # "Execution error" and burned both retries. If
+                            # generate_df returned nothing usable, recover by
+                            # picking up a DataFrame the model left in the function
+                            # namespace: if exactly one non-empty DataFrame variable
+                            # exists, bind it; if none, raise a CLEAR, actionable
+                            # error so the retry is cheap and correctly aimed.
+                            if df is None or not isinstance(df, pd.DataFrame):
+                                df = self._recover_df_from_namespace(local_namespace)
                         output_log = stdout_capture.getvalue()
                     lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - lock_acquired_at) * 1000.0, 3))
             finally:
@@ -897,7 +911,65 @@ class StreamingCodeExecutor:
         # deliver it explicitly so it actually reaches the script.
         if has_var_kw and input_df is not None and "input_df" not in kwargs:
             kwargs["input_df"] = input_df
-        return fn(wrapped_clients, excel_files, **kwargs)
+        try:
+            return fn(wrapped_clients, excel_files, **kwargs)
+        except NameError as e:
+            # P0 multi-source fix: a bare `NameError: name 'df' is not defined`
+            # almost always means the (often UNION/cross-source) function builds
+            # its result under a different variable name and then `return df`s a
+            # name that was never assigned on the taken branch. Turn the opaque
+            # NameError into a CLEAR, actionable instruction so the retry is
+            # aimed correctly instead of guessing. Any other NameError re-raises
+            # unchanged. Returns None so the caller's namespace-recovery guard
+            # gets a chance before the loop treats it as a real failure.
+            msg = str(e)
+            if "'df'" in msg or "name 'df'" in msg:
+                raise NameError(
+                    "name 'df' is not defined: the generate_df function must "
+                    "assign its FINAL combined DataFrame to a variable named "
+                    "exactly `df` before `return df`. In the multi-source / "
+                    "cross-source UNION path, after querying each connection "
+                    "separately, concatenate the per-source frames into `df` "
+                    "(e.g. `df = pd.concat([df1, df2, ...], ignore_index=True)`) "
+                    "and `return df`. Do not return a frame under any other name."
+                ) from e
+            raise
+
+    @staticmethod
+    def _recover_df_from_namespace(namespace: Dict) -> pd.DataFrame:
+        """Last-resort df binder for the multi-source codegen contract.
+
+        Called when generate_df returned None / non-DataFrame. Scans the
+        post-exec function/module namespace for DataFrame variables:
+          * exactly one non-empty DataFrame  -> bind it (the model almost
+            certainly built the answer there and forgot to return it);
+          * otherwise -> raise a CLEAR, actionable error (not a bare NameError)
+            so the retry is cheap and correctly targeted.
+        The keys 'pd'/'np'/'df'/dunder are skipped — we only consider genuine
+        user-built frames. Empty frames are ignored as candidates so a stray
+        `pd.DataFrame()` stub never wins over the real result.
+        """
+        candidates = {
+            k: v for k, v in (namespace or {}).items()
+            if isinstance(v, pd.DataFrame) and not k.startswith("__")
+            and k not in ("pd", "np")
+        }
+        non_empty = {k: v for k, v in candidates.items() if len(v.columns) > 0}
+        if len(non_empty) == 1:
+            return next(iter(non_empty.values()))
+        if non_empty:
+            names = ", ".join(sorted(non_empty.keys()))
+            raise ValueError(
+                "generate_df did not return a DataFrame and several DataFrame "
+                f"variables exist ({names}); assign the FINAL combined result to "
+                "a variable named exactly `df` and `return df`."
+            )
+        raise ValueError(
+            "generate_df returned no DataFrame. Assign the result of your "
+            "ds_clients[...].execute_query(...) call(s) to a variable named "
+            "exactly `df` and `return df`. For multi-source/UNION questions, "
+            "concatenate the per-source frames with pd.concat([...]) into `df`."
+        )
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
                                  captured_timings: Optional[List[dict]] = None,

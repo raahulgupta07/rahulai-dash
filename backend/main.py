@@ -102,6 +102,7 @@ from app.routes import (
     eval_yaml,
     data_source_tools,
     knowledge,
+    intelligence,
     autotrain,
     autotrain_connector,
     workflows,
@@ -308,6 +309,7 @@ app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
 app.include_router(knowledge.router)  # hybrid Phase 1: semantic layer (prefix /api/knowledge baked into router)
+app.include_router(intelligence.router)  # Intelligence rail data (prefix /api/intelligence)
 app.include_router(autotrain.router)  # autotrain: upload flat file -> ingest staging -> pending knowledge (prefix /api/autotrain)
 app.include_router(autotrain_connector.router)  # autotrain P7: live connector tables -> pending knowledge (prefix /api/autotrain)
 app.include_router(workflows.router)  # workflow runner #5: deterministic batch pipeline (prefix /api/workflows)

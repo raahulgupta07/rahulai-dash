@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Integer, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Boolean, Column, String, Text, Integer, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -31,6 +31,14 @@ class QueryLibraryItem(BaseSchema):
     run_count = Column(Integer, nullable=False, default=0)
     owner = Column(String, nullable=True)
     status = Column(String(50), nullable=False, default='draft')
+
+    # Golden Query Promotion (flag HYBRID_GOLDEN_QUERIES).
+    # A row becomes golden when it has been repeatedly verified as correct
+    # (verified_count >= threshold OR a thumbs-up fires on it). Golden rows
+    # are surfaced first in the codegen recall block.  Both columns default
+    # to their false/0 equivalents so existing rows are unaffected on upgrade.
+    is_golden = Column(Boolean, nullable=False, default=False, server_default='false')
+    verified_count = Column(Integer, nullable=False, default=0, server_default='0')
 
     # Relationships
     organization = relationship("Organization")

@@ -84,6 +84,14 @@ from .builders.semantic_context_builder import SemanticContextBuilder
 # Kepler Phase 2: proven generate_df code memory (read).
 from .builders.code_bank_context_builder import CodeBankContextBuilder
 from .builders.metrics_context_builder import MetricsContextBuilder
+# Wave1 P1: deep profiler — per-column role catalog + top-3 values + variant
+# warnings stored in DataSourceTable.metadata_json['profile_v2'].
+# Self-gates on flags.PROFILE_V2; empty section (no DB hit) when off.
+from .builders.profile_v2_context_builder import ProfileV2ContextBuilder
+# Wave1 P6: code enrich — pipeline logic (grain + formulas + population) from
+# source DDL/view definitions.  Self-gates on flags.CODE_ENRICH; empty section
+# (no DB hit) when off.
+from .builders.pipeline_logic_context_builder import PipelineLogicContextBuilder
 from .builders.code_context_builder import CodeContextBuilder
 from .builders.resource_context_builder import ResourceContextBuilder
 from .builders.observation_context_builder import ObservationContextBuilder
@@ -421,6 +429,23 @@ class ContextHub:
             data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
         )
 
+        # Wave1 P1: deep profiler column-role catalog. Self-gates on
+        # flags.PROFILE_V2; empty section (no DB hit) when off.
+        self.profile_v2_builder = ProfileV2ContextBuilder(
+            self.db,
+            self.organization,
+            data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
+        )
+
+        # Wave1 P6: code enrich pipeline-logic catalog (grain + formulas +
+        # population from DDL). Self-gates on flags.CODE_ENRICH; empty section
+        # (no DB hit) when off.
+        self.pipeline_logic_builder = PipelineLogicContextBuilder(
+            self.db,
+            self.organization,
+            data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
+        )
+
     async def build_context(
         self,
         spec: Optional[ContextBuildSpec] = None,
@@ -734,7 +759,7 @@ class ContextHub:
 
         # Run static builders in parallel; schemas/instructions come from
         # the cache when warm.
-        schemas, instructions, resources, files, brain, brain_graph, skills, studio, semantic, metrics, code_bank, join_graph, docs, agent_memory = await asyncio.gather(
+        schemas, instructions, resources, files, brain, brain_graph, skills, studio, semantic, metrics, code_bank, join_graph, docs, agent_memory, profile_v2, pipeline_logic = await asyncio.gather(
             _build_or_get_schemas(),
             _build_or_get_instructions(),
             _timed("resources", self.resource_builder.build()),
@@ -749,6 +774,8 @@ class ContextHub:
             _timed("join_graph", self.join_graph_builder.build(query=query)),
             _timed("docs", self.docs_builder.build(query=query)),
             _timed("agent_memory", self.agent_memory_builder.build(query=query)),
+            _timed("profile_v2", self.profile_v2_builder.build(query=query)),
+            _timed("pipeline_logic", self.pipeline_logic_builder.build(query=query)),
             return_exceptions=True,
         )
         _hub_logger.info(f"[context_hub:prime_static] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
@@ -769,6 +796,8 @@ class ContextHub:
         self._static_cache["code_bank"] = code_bank if not isinstance(code_bank, Exception) else None
         self._static_cache["docs"] = docs if not isinstance(docs, Exception) else None
         self._static_cache["agent_memory"] = agent_memory if not isinstance(agent_memory, Exception) else None
+        self._static_cache["profile_v2"] = profile_v2 if not isinstance(profile_v2, Exception) else None
+        self._static_cache["pipeline_logic"] = pipeline_logic if not isinstance(pipeline_logic, Exception) else None
 
     async def refresh_warm(self) -> None:
         """Rebuild warm sections each loop (messages, queries, observations, entities).
@@ -997,6 +1026,36 @@ class ContextHub:
         """
         try:
             section = self._static_cache.get("studio", None)
+            return section.render() if section else ""
+        except Exception:
+            return ""
+
+    def render_profile_v2_section(self) -> str:
+        """Render the primed Wave1-P1 deep-profiler column-role catalog, or "".
+
+        Wave1 P1 (PROFILE_V2): ProfileV2ContextBuilder loads stored
+        metadata_json['profile_v2'] blobs for ACTIVE tables in scope and primes a
+        ProfileV2Section into ``_static_cache['profile_v2']`` (empty section, no DB
+        hit, when flags.PROFILE_V2 is OFF).  Surfaced via this helper — mirrors
+        render_brain_graph_section.  Never raises — returns "" on any error / when off.
+        """
+        try:
+            section = self._static_cache.get("profile_v2", None)
+            return section.render() if section else ""
+        except Exception:
+            return ""
+
+    def render_pipeline_logic_section(self) -> str:
+        """Render the primed Wave1-P6 pipeline-logic block, or "".
+
+        Wave1 P6 (CODE_ENRICH): PipelineLogicContextBuilder loads stored
+        metadata_json['pipeline_logic'] blobs for ACTIVE tables in scope and primes a
+        PipelineLogicSection into ``_static_cache['pipeline_logic']`` (empty section,
+        no DB hit, when flags.CODE_ENRICH is OFF).  Surfaced via this helper — mirrors
+        render_profile_v2_section.  Never raises — returns "" on any error / when off.
+        """
+        try:
+            section = self._static_cache.get("pipeline_logic", None)
             return section.render() if section else ""
         except Exception:
             return ""

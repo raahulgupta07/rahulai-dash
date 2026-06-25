@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, ForeignKey, Index, DateTime
+from sqlalchemy import Boolean, Column, Float, Numeric, String, Text, ForeignKey, Index, DateTime
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -29,6 +29,17 @@ class MetricDefinition(BaseSchema):
     sql_calc = Column(Text, nullable=False, default='')
     owner = Column(String, nullable=True)
     status = Column(String(50), nullable=False, default='draft')
+
+    # --- verified metrics (HYBRID_VERIFIED_METRICS) -------------------------
+    # is_locked: when True and VERIFIED_METRICS is ON, resolve_metric executes
+    # sql_calc read-only to obtain the authoritative live value instead of
+    # returning the static definition only. OFF-flag rows treat this as False.
+    is_locked = Column(Boolean, nullable=False, default=False, server_default="false")
+    # last_value: the most recently computed scalar from sql_calc (nullable —
+    # populated on first locked resolve; NULL until the first execution).
+    last_value = Column(Numeric, nullable=True)
+    # last_value_at: timestamp of the last successful locked execution.
+    last_value_at = Column(DateTime, nullable=True)
 
     # --- bi-temporal (HYBRID_BITEMPORAL) -----------------------------------
     valid_at = Column(DateTime, nullable=True)

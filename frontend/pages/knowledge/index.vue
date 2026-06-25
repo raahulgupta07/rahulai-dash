@@ -337,6 +337,10 @@
 
 <script setup lang="ts">
 import { useMyFetch } from '~/composables/useMyFetch'
+// Bare tab tags resolve to nothing under Nuxt path-prefix auto-naming
+// (registered as <KnowledgeAssetsTab> / <KnowledgeReviewTab>). Import explicitly.
+import AssetsTab from '~/components/knowledge/AssetsTab.vue'
+import ReviewTab from '~/components/knowledge/ReviewTab.vue'
 
 definePageMeta({ auth: true, layout: 'default' })
 

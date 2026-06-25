@@ -109,6 +109,13 @@
                                 <WidgetTabsComponent :widget="localCompletion.widget"
                                     :step="localCompletion.step" />
 
+                                <!-- Proactive insights chips (flag HYBRID_PROACTIVE_INSIGHTS) -->
+                                <ProactiveInsightsChips
+                                    v-if="localCompletion.step?.data?._insights?.length"
+                                    :step-data="localCompletion.step?.data"
+                                    class="px-2 pb-1"
+                                />
+
                                 <div class="pe-2 ps-2 mt-1.5 pb-1.5 flex justify-between items-center">
                                     <button @click="handleAddClick(localCompletion)"
                                         class="text-xs rounded text-[#C2683F] hover:text-[#A8542F]"

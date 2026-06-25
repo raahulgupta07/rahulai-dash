@@ -146,18 +146,22 @@ class ToolRegistry:
         # Flags are read at CALL TIME so a live flag flip is honored.
         SKILL_TOOLS = {"load_skill", "run_skill_file", "read_skill_file"}
         SUBAGENT_TOOLS = {"delegate_subtask"}
+        FORECAST_TOOLS = {"forecast_df"}
         try:
             from app.settings.hybrid_flags import flags
             skills_on = bool(flags.SKILLS)
             subagents_on = bool(flags.SUBAGENTS)
+            forecast_on = bool(flags.FORECAST)
         except Exception:
             # Fail-open: if flags can't be read, leave the catalog unchanged.
             skills_on = True
             subagents_on = True
+            forecast_on = True
         catalog = [
             t for t in catalog
             if not (t["name"] in SKILL_TOOLS and not skills_on)
             and not (t["name"] in SUBAGENT_TOOLS and not subagents_on)
+            and not (t["name"] in FORECAST_TOOLS and not forecast_on)
         ]
 
         return catalog

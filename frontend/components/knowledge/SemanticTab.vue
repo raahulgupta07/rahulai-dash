@@ -92,6 +92,10 @@
 
 <script setup lang="ts">
 import { useMyFetch } from '~/composables/useMyFetch'
+// Bind the bare <SemanticTableCard> tag explicitly: Nuxt registers this sibling
+// as <KnowledgeSemanticTableCard> (path prefix), so the bare name would resolve
+// to nothing. See the same note in KnowledgePanel.vue.
+import SemanticTableCard from './SemanticTableCard.vue'
 
 interface DataSource { id: string; name: string }
 interface Column { id: string; name: string; type: string; meaning?: string; status?: string }

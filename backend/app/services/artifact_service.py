@@ -59,6 +59,33 @@ class ArtifactService:
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
+    async def list_presentations(
+        self, db: AsyncSession, organization_id: str
+    ) -> List[Artifact]:
+        """List all slides artifacts (presentations) for an organization.
+
+        Keeps only the latest version per report so re-generated decks don't
+        show as duplicates.
+        """
+        stmt = (
+            select(Artifact)
+            .where(
+                Artifact.organization_id == str(organization_id),
+                Artifact.mode == "slides",
+                Artifact.deleted_at.is_(None),
+            )
+            .order_by(Artifact.created_at.desc())
+        )
+        res = await db.execute(stmt)
+        rows = list(res.scalars().all())
+
+        latest_per_report: dict = {}
+        for a in rows:
+            rid = str(a.report_id)
+            if rid not in latest_per_report:
+                latest_per_report[rid] = a
+        return list(latest_per_report.values())
+
     async def get_latest_by_report(
         self, db: AsyncSession, report_id: str
     ) -> Optional[Artifact]:

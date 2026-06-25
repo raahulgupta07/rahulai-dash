@@ -23,12 +23,23 @@
 
       <hr class="my-4 border-[#E7E5DD]" />
 
+      <!-- BATCH: uploading many files at once -->
+      <div v-if="batching" class="py-8 text-center">
+        <Spinner class="h-6 w-6 mx-auto mb-3 text-[#C2683F]" />
+        <p class="text-sm font-medium text-[#1f2328]">Uploading {{ batchDone }} / {{ batchTotal }} files…</p>
+        <p class="text-xs text-[#9a958c] mt-1">Each becomes its own source and auto-pins. All sheets included.</p>
+        <div class="w-full h-1.5 bg-[#F0EEE6] rounded-full mt-3 overflow-hidden">
+          <div class="h-full bg-[#C2683F] transition-all" :style="{ width: `${batchTotal ? Math.round(100*batchDone/batchTotal) : 0}%` }"></div>
+        </div>
+      </div>
+
       <!-- STEP 1: pick a file (no file chosen yet) -->
-      <div v-if="!file">
+      <div v-else-if="!file">
         <input
           type="file"
           ref="fileInput"
           accept=".xlsx,.xls,.csv"
+          multiple
           class="hidden"
           @change="onFileInput"
         />
@@ -389,15 +400,75 @@ function toggleSheet(s: string) {
 
 // ---- file selection ----
 function onFileInput(e: Event) {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  if (f) chooseFile(f)
+  const files = Array.from((e.target as HTMLInputElement).files || [])
+  if (files.length > 1) batchUpload(files)
+  else if (files[0]) chooseFile(files[0])
   ;(e.target as HTMLInputElement).value = ''
 }
 
 function onDrop(e: DragEvent) {
   isDragging.value = false
-  const f = e.dataTransfer?.files?.[0]
-  if (f) chooseFile(f)
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (files.length > 1) batchUpload(files)
+  else if (files[0]) chooseFile(files[0])
+}
+
+// ---- batch: many files at once (skip the per-sheet picker) ----------------
+// Each file goes straight through upload (/files) → create (/data_sources/from-file)
+// → the parent pins it via the `created` emit. Excel files use all sheets.
+const batching = ref(false)
+const batchTotal = ref(0)
+const batchDone = ref(0)
+const batchErrors = ref<string[]>([])
+
+async function batchUpload(files: File[]) {
+  batching.value = true
+  batchTotal.value = files.length
+  batchDone.value = 0
+  batchErrors.value = []
+  let ok = 0
+  for (const f of files) {
+    const v = validate(f)
+    if (v) { batchErrors.value.push(`${f.name}: ${v}`); batchDone.value++; continue }
+    try {
+      const fd = new FormData()
+      fd.append('file', f)
+      const up = await useMyFetch('/files', { method: 'POST', body: fd })
+      const upRes = up.data?.value as any
+      if (up.error?.value || !upRes?.id) { batchErrors.value.push(`${f.name}: upload failed`); batchDone.value++; continue }
+
+      const payload: Record<string, any> = {
+        file_id: upRes.id,
+        data_source_name: baseName(f.name),
+        sheet_names: null,   // batch = all sheets
+        description: null,
+      }
+      if (props.studioId) payload.studio_id = props.studioId
+      const cr = await useMyFetch('/data_sources/from-file', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const ds = cr.data?.value as any
+      if (cr.error?.value || !ds) { batchErrors.value.push(`${f.name}: create failed`); batchDone.value++; continue }
+      emit('created', ds)   // parent pins it
+      ok++
+    } catch (e: any) {
+      batchErrors.value.push(`${f.name}: ${detailOf(e, 'failed')}`)
+    } finally {
+      batchDone.value++
+    }
+  }
+  batching.value = false
+  toast.add({
+    title: `${ok} of ${files.length} file${files.length === 1 ? '' : 's'} added`,
+    description: batchErrors.value.length ? `${batchErrors.value.length} failed — see console.` : 'All files uploaded & pinned.',
+    icon: ok ? 'i-heroicons-check-circle' : 'i-heroicons-exclamation-triangle',
+    color: batchErrors.value.length ? 'orange' : 'green',
+  })
+  if (batchErrors.value.length) console.warn('Batch upload errors:', batchErrors.value)
+  emit('close')
+  resetAll()
 }
 
 function chooseFile(f: File) {

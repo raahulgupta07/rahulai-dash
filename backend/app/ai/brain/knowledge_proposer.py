@@ -513,6 +513,29 @@ async def propose_from_positive_completion(
                 )
                 if qid:
                     out["queries"].append(qid)
+
+                # Golden promotion: a thumbs-up is a strong verification signal.
+                # If an approved query_library row already holds this SQL, bump
+                # its verified_count and promote to golden when threshold is met.
+                # Gated on GOLDEN_QUERIES — no-op when flag is OFF.
+                try:
+                    from app.ai.knowledge.query_learning import promote_to_golden
+                    from app.models.query_library import QueryLibraryItem
+
+                    gq_res = await db.execute(
+                        select(QueryLibraryItem).where(
+                            QueryLibraryItem.organization_id == org_id,
+                            QueryLibraryItem.data_source_id == ds_id,
+                            QueryLibraryItem.sql_text == qc.sql_text,
+                            QueryLibraryItem.status == "approved",
+                            QueryLibraryItem.deleted_at.is_(None),
+                        )
+                    )
+                    gq_row = gq_res.scalars().first()
+                    if gq_row is not None:
+                        await promote_to_golden(db, item=gq_row, reason="thumbs-up")
+                except Exception:
+                    pass  # never break the thumbs-up path
         except Exception:
             pass  # no hard dependency on the query cache
 

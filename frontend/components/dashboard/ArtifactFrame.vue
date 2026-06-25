@@ -170,6 +170,39 @@
         class="absolute inset-0"
       />
 
+      <!-- Slides with no rendered preview (failed / not rendered) — clean state,
+           never the python-pptx code dump. -->
+      <div v-else-if="isUnrenderableSlides" class="absolute inset-0 flex flex-col items-center justify-center bg-[#FBFAF6] gap-2.5 text-center px-6">
+        <Icon
+          :name="selectedArtifact?.status === 'failed' ? 'heroicons:exclamation-triangle' : 'heroicons:presentation-chart-line'"
+          class="w-8 h-8 mb-1"
+          :class="selectedArtifact?.status === 'failed' ? 'text-red-500' : 'text-[#C2683F]'"
+        />
+        <h3 class="text-base font-medium text-[#1f2328]" style="font-family: ui-serif, Georgia, serif;">
+          {{ selectedArtifact?.status === 'failed' ? 'Presentation generation failed' : 'No rendered slides yet' }}
+        </h3>
+        <p class="text-xs text-[#6b6b6b] max-w-xs">
+          This deck has no rendered preview. Regenerate it{{ selectedArtifact?.pptx_path ? ', or download the PowerPoint.' : '.' }}
+        </p>
+        <div class="flex items-center gap-2 mt-1">
+          <button
+            @click="regenerateSlides"
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-[#C2683F] hover:bg-[#A8542F] border border-[#C2683F] transition-colors"
+          >
+            <Icon name="heroicons:arrow-path" class="w-4 h-4" />
+            Regenerate
+          </button>
+          <button
+            v-if="selectedArtifact?.pptx_path"
+            @click="exportPptx"
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-[#1f2328] bg-white hover:bg-[#F4F1EA] border border-[#E7E5DD] transition-colors"
+          >
+            <Icon name="heroicons:arrow-down-tray" class="w-4 h-4" />
+            Download .pptx
+          </button>
+        </div>
+      </div>
+
       <!-- Iframe Render Error State -->
       <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
         <Icon name="heroicons:exclamation-triangle" class="w-8 h-8 text-red-400 mb-3" />
@@ -190,7 +223,7 @@
 
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !iframeError && iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isUnrenderableSlides && !iframeError && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
@@ -655,6 +688,25 @@ const hasSlidesWithPreviews = computed(() => {
   const previewImages = selectedArtifact.value.content?.preview_images;
   return Array.isArray(previewImages) && previewImages.length > 0;
 });
+
+// Slides artifact that can't be shown as a deck: no rendered preview images
+// (generation failed, or the PPTX render never produced PNGs). We must NOT fall
+// through to the iframe — a slides artifact's content.code is python-pptx, which
+// the iframe would dump as raw text. Show a clean state instead.
+const isUnrenderableSlides = computed(() => {
+  if (!selectedArtifact.value) return false;
+  if (selectedArtifact.value.mode !== 'slides') return false;
+  if (isPendingArtifact.value) return false;
+  return !hasSlidesWithPreviews.value;
+});
+
+// Re-run the slides generation for this report (best-effort).
+async function regenerateSlides() {
+  const title = selectedArtifact.value?.title || 'the presentation';
+  window.dispatchEvent(new CustomEvent('prompt:prefill', {
+    detail: { text: `Regenerate the presentation "${title}" as a slide deck.`, autoSubmit: true }
+  }));
+}
 
 // Generate dashboard prompt - dispatches event to update and submit prompt box
 function generateDashboardPrompt() {
