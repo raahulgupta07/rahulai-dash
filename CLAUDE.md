@@ -357,9 +357,9 @@ push delta-upserts into a per-agent DataSource. Flag `HYBRID_FOLDER_SYNC` (defau
   INSTALL.txt → `cityagent-folder-sync-<os>.zip`. Modal buttons (`FolderSyncSetupModal.vue` osButtons) →
   `/api/sync/download/<os>` with `download` attr. Agent source is BAKED into the image at
   `/app/folder-sync-agent` (via docker cp + commit); endpoint falls back to a repo-relative path.
-  **LANDMINE:** a fresh `docker build` from the Dockerfile won't include `/app/folder-sync-agent` unless the
-  Dockerfile COPYs it → download 503. Re-bake (docker cp folder-sync-agent + commit) after any rebuild, or
-  add a COPY line. No signed native installer yet (Phase 6) — zip ships the Python agent (pip + run).
+  Dockerfile COPYs `./folder-sync-agent → /app/folder-sync-agent` (after skills_library) so a clean build
+  includes it; if that COPY is ever removed the download 503s (re-bake via docker cp + commit as a stopgap).
+  No signed native installer yet (Phase 6) — zip ships the Python agent (pip + run).
 - **E2E verified live** (org 55278108, flag ON, minted key): agents 200 → new push (created ds) → same file
   →`skipped` (delta) → edited file →`updated` (same ds reused, same-schema merge) → bind to CRM studio →
   StudioDataSource link created + `studio_id` returned → status grouped by machine. Test rows cleaned.

@@ -127,6 +127,10 @@ COPY --chown=app:app ./backend/demo-datasources /app/backend/demo-datasources
 # self-seed via `python scripts/import_skill.py /app/skills_library`.
 COPY --chown=app:app ./skills_library /app/skills_library
 
+# Copy the desktop Folder Sync agent source so GET /api/sync/download/{os} can
+# zip + serve it (HYBRID_FOLDER_SYNC). Without this a fresh build returns 503.
+COPY --chown=app:app ./folder-sync-agent /app/folder-sync-agent
+
 # Copy the generated static SPA (nuxt generate output includes all public/
 # assets — libs, artifact-sandbox.html, icons, etc. — copied automatically).
 COPY --from=frontend-builder --chown=app:app /app/frontend/.output/public /app/frontend/dist
