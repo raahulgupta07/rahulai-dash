@@ -4,6 +4,11 @@ Hybrid feature changelog (our additions on top of the bagofwords/Dash base). New
 Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` followed by `-` feature bullets.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.6.0 — Upload a whole folder at once  (2026-06-25)
+- New "Upload a whole folder" button in the file-upload modal — picks every Excel/CSV inside a folder in one go
+- Each spreadsheet becomes its own data agent (Office lock files and non-spreadsheets are skipped)
+- One-shot from the browser — no desktop app needed (for continuous auto-sync, use Folder Sync ⟳)
+
 ## v1.5.1 — Folder Sync: working download buttons  (2026-06-25)
 - The macOS / Windows / Linux buttons now actually download the sync app (a small Python program) as a zip
 - Each download includes an INSTALL.txt with the exact setup commands for that OS

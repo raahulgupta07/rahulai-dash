@@ -43,6 +43,16 @@
           class="hidden"
           @change="onFileInput"
         />
+        <!-- Folder picker: pulls every spreadsheet/CSV out of a chosen folder -->
+        <input
+          type="file"
+          ref="folderInput"
+          webkitdirectory
+          directory
+          multiple
+          class="hidden"
+          @change="onFolderInput"
+        />
         <div
           @dragover.prevent="isDragging = true"
           @dragenter.prevent="isDragging = true"
@@ -65,10 +75,23 @@
               {{ isDragging ? 'Drop the file here' : 'Click or drag a file to upload' }}
             </span>
             <span class="mt-1 text-xs text-[#9a958c]">
-              Spreadsheet or CSV, up to {{ MAX_SIZE_MB }} MB
+              Spreadsheet or CSV, up to {{ MAX_SIZE_MB }} MB · drop many at once
             </span>
           </div>
         </div>
+
+        <!-- Or upload a whole folder (every .xlsx/.xls/.csv inside it) -->
+        <button
+          type="button"
+          @click="$refs.folderInput.click()"
+          class="mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E8C9B5] bg-white px-3 py-2 text-xs font-semibold text-[#C2683F] hover:bg-[#F6EFEA] transition-colors"
+        >
+          <UIcon name="i-heroicons-folder-arrow-down" class="w-4 h-4" />
+          Upload a whole folder
+        </button>
+        <p class="mt-1.5 text-[11px] text-[#9a958c] text-center">
+          Picks every spreadsheet &amp; CSV in the folder — one data agent each. For continuous auto-sync, use <span class="text-[#C2683F]">Sync a folder ⟳</span>.
+        </p>
 
         <p v-if="error" class="mt-3 flex items-start gap-1.5 text-xs text-red-600">
           <UIcon name="i-heroicons-exclamation-circle" class="w-4 h-4 shrink-0 mt-px" />
@@ -411,6 +434,25 @@ function onDrop(e: DragEvent) {
   const files = Array.from(e.dataTransfer?.files || [])
   if (files.length > 1) batchUpload(files)
   else if (files[0]) chooseFile(files[0])
+}
+
+// ---- whole-folder upload (webkitdirectory) -------------------------------
+// The browser hands back every file in the picked folder (recursively). Keep
+// only spreadsheets/CSVs, drop Office lock files (~$...), then reuse batchUpload.
+const FOLDER_EXTS = ['.xlsx', '.xls', '.csv']
+function onFolderInput(e: Event) {
+  const all = Array.from((e.target as HTMLInputElement).files || [])
+  ;(e.target as HTMLInputElement).value = ''
+  const files = all.filter((f) => {
+    const n = f.name.toLowerCase()
+    return !f.name.startsWith('~$') && FOLDER_EXTS.some((x) => n.endsWith(x))
+  })
+  if (!files.length) {
+    error.value = 'No .xlsx, .xls or .csv files found in that folder.'
+    return
+  }
+  error.value = ''
+  batchUpload(files)
 }
 
 // ---- batch: many files at once (skip the per-sheet picker) ----------------

@@ -321,6 +321,13 @@ App installs from the browser (standalone window, dock icon, offline shell). Mod
   silently don't activate. iOS = manual Share→Add to Home Screen (no programmatic prompt). Silent
   zero-click auto-install is impossible in any browser — the button is the 1-click path.
 
+## Whole-folder upload (one-shot, browser) (2026-06-25, v1.6.0, BAKED)
+DIFFERENT from Folder Sync (below): a one-shot browser folder pick, no desktop app, no flag.
+`components/data/UploadSpreadsheetModal.vue` — added a 2nd hidden `<input webkitdirectory directory multiple>`
++ "Upload a whole folder" button + `onFolderInput` (filters `.xlsx/.xls/.csv`, drops `~$` lock files) →
+reuses the existing `batchUpload()` (each file → `/files` → `/data_sources/from-file`, auto-pins via
+`created` emit). No backend change. Folder Sync ⟳ = continuous; this = grab-everything-once.
+
 ## Folder Sync — local folder auto-ingest, "like Claude Code" (2026-06-25, BAKED)
 A desktop tray agent watches a local folder and pushes changed Excel/CSV files to the server; each
 push delta-upserts into a per-agent DataSource. Flag `HYBRID_FOLDER_SYNC` (default OFF; ON org 55278108).
@@ -377,7 +384,7 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
 **Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `hybrid-brain`,
-mig head **`foldersync1`**, `VERSION_HYBRID`=**1.5.1**.
+mig head **`foldersync1`**, `VERSION_HYBRID`=**1.6.0**.
 Folder Sync (desktop folder auto-ingest, per-agent bind, delta upsert; flag ON org 55278108; E2E proven)
 BUILT+BAKED — desktop agent in `folder-sync-agent/` (not packaged/shipped yet).
 Agent Templates (export/gallery/bind + popup
