@@ -4,6 +4,12 @@ Hybrid feature changelog (our additions on top of the bagofwords/Dash base). New
 Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` followed by `-` feature bullets.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.12.0 — nginx reverse-proxy stack  (2026-06-25)
+- New `docker-compose.nginx.yaml` + `nginx/nginx.conf`: front the app with nginx (the default proxy for this deployment). nginx publishes the host port (`HTTP_PORT`, default 8001) and proxies to the app over the internal network; the app is not exposed directly.
+- nginx tuned for this app: SSE streaming (`proxy_buffering off` so chat streams token-by-token), websocket upgrade passthrough, unlimited upload size, 1h read/send timeouts (no 504 on long agent runs).
+- Run it: `docker compose -f docker-compose.nginx.yaml up -d --build` → `http://<host>:<HTTP_PORT>`. Set `HTTP_PORT` + `DASH_BASE_URL` in `.env`.
+- Caddy stack (`docker-compose.yaml`, auto-HTTPS) and direct-port (`APP_PORT`) paths still available.
+
 ## v1.11.1 — Publish app on configurable host port  (2026-06-25)
 - The main `docker-compose.yaml` (Caddy/SSL variant) now publishes the app on the host via `APP_PORT` (default 3000) instead of `expose:` only — fixes "app only shows 3000, can't reach my chosen port". Set `APP_PORT=8001` in `.env` to reach it at `http://<host>:8001`. The container always listens on 3000 internally; this maps host→3000.
 - `.env.example` documents `APP_PORT` (and that `DASH_BASE_URL` should match it / your domain)
