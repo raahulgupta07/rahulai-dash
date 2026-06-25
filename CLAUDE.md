@@ -416,8 +416,33 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   (explicit import, between New-Report and profile). RULE: every shipped feature bumps
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
-**Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `hybrid-brain`,
-mig head **`agentchan1`**, `VERSION_HYBRID`=**1.11.0**.
+**Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `main`,
+mig head **`agentchan1`**, `VERSION_HYBRID`=**1.15.0**.
+
+**v1.13–1.15 (2026-06-25):**
+- **v1.13.0** super-admin DIRECT user create (no invite): `POST /api/organizations/{id}/members/create-user`
+  (admin-gated) + Members "Add user" modal. LANDMINE: do NOT route through `manager.create()` — its
+  `_validate_user_creation` gate 400s non-first signups ("Sign-up is disabled"); insert the User directly
+  (`PasswordHelper().hash` + is_active/is_verified) like the OAuth path, then add Membership. Also added the full
+  `HYBRID_*` env block to `docker-compose.nginx.yaml` (it had NONE → every flag defaulted OFF, Studios locked) with
+  visible features ON + a `redis` service.
+- **v1.13.1** dashboard fullscreen black-charts fix: `ArtifactFrame` renders a 2nd iframe; `sendDataToIframe()` only
+  posted to the bg iframe → fullscreen got no `ARTIFACT_DATA`. Now broadcasts to both + re-send on its load.
+- **v1.13.2** see v1.13.0 LANDMINE (the direct-insert fix).
+- **v1.14.0** ALL 65 hybrid flags toggleable in **Settings → Features** (was ~32). Extended `UPGRADE_FLAGS` with
+  `category`/`status`/`note` for every flag + grouped/searchable UI + confirm dialog on risky enables. `_effective()`
+  in `routes/organization_settings.py` falls back to override-or-env for the env-only daemon knobs
+  (`EVAL_SCHEDULE_ENABLED`/`JOIN_MINE_ENABLED`/`STUDIO_LEARN_DAEMON_ENABLED` have no `flags` property). LANDMINE
+  reconfirmed: a flag absent from `UPGRADE_FLAGS` is invisible in the UI AND its PUT 400s.
+- **v1.15.0** Hybrid Search (`HYBRID_SEMANTIC_SEARCH`) is now REAL. **OpenRouter SUPPORTS embeddings** via its
+  OpenAI-compatible `/embeddings` — `openai/text-embedding-3-small` (1536d = matches the existing
+  `knowledge_search_index.embedding vector(1536)` column, NO migration), reusing the org's existing OpenRouter key.
+  New `app/ai/knowledge/embeddings.py` (AsyncOpenAI, batched, fail-soft) + `indexer.py` (`reindex_org` from approved
+  semantic/metrics/queries/docs → tsv + vectors); `hybrid_search.py` gained a pgvector cosine arm + 3-way RRF;
+  `HybridSearchContextBuilder`+section wired into `context_hub` (gather tail) + `agent_v2` (gated). Routes
+  `POST /api/knowledge/reindex` + `GET /api/knowledge/search-index/status`; Rebuild-index button on the Features
+  Hybrid-Search row. Proven live (293 indexed+embedded, OpenRouter 200, relevant RRF hits). Optional reranker NOT
+  added (RRF deemed enough; bolt-on later via OpenRouter rerank if needed).
 
 **v1.11.0 One-command deploy + env super-admin:** (1) DEPLOY FIX: `Dockerfile` was `FROM cityagent-base:dev`
 (local-only image from `Dockerfile.base`, never in a registry) → clean prod `docker compose up --build`
