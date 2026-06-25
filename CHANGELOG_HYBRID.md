@@ -4,6 +4,12 @@ Hybrid feature changelog (our additions on top of the bagofwords/Dash base). New
 Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` followed by `-` feature bullets.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.4.0 — Agent Templates: share an agent's best practices  (2026-06-25)
+- Export a smart agent as a portable, versioned Template — rules, metric formulas, example patterns, skills and persona, with data and credentials stripped
+- Template Gallery: browse Org and Global templates and reuse them
+- Bind wizard: map a template's required columns to your own data, then build your own agent
+- Imported rules and metrics land pending for review — never auto-applied
+
 ## v1.3.0 — Install as an app  (2026-06-25)
 - Installable PWA: add CityAgent to your desktop or home screen as a standalone app
 - One-click "Install app" button in the top bar (next to notifications)

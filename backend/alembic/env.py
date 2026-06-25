@@ -113,6 +113,7 @@ from app.models.usage_policy import (
     UsageEvent,
 )
 from app.models.knowledge_search_index import KnowledgeSearchIndex  # hybrid P8 search scaffold
+from app.models.agent_template import AgentTemplate  # hybrid Agent Templates
 
 from app.settings.config import settings
 

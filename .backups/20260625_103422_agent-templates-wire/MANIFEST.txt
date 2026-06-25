@@ -1,0 +1,4 @@
+# backup 20260625_103422 label=agent-templates-wire
+# root: /Users/rahulgupta/Desktop/CityAI-Final-Project/CityAgent/CityAgent-Data/CityAgent Analytics
+OK       frontend/components/nav/TopNav.vue
+OK       frontend/pages/studios/[id]/index.vue

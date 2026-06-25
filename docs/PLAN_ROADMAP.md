@@ -16,6 +16,7 @@ core minimally (HARD RULE 3).
 | Changelog + "What's new" bell | `docs/PLAN_CHANGELOG_WHATSNEW.md` | versioned feature feed + top-nav notification popover | **DONE + BAKED** (v1.2.0) |
 | Ingest storage + merge | `docs/PLAN_INGEST_STORAGE.md` | Parquet canonical store + LLM merge-judge for same-schema | designed, not started |
 | Installable PWA | `docs/PLAN_PWA.md` | Add-to-Home-Screen / desktop app + Install button + offline shell | **DONE + BAKED** |
+| Agent Templates | `docs/PLAN_AGENT_TEMPLATES.md` | export agent know-how → gallery → bind to own data → new agent | **DONE + BAKED** (v1.4.0) |
 
 ## Recommended order (rationale)
 1. **S6 — ship skills** (`PLAN_SKILLS.md`). 5 phases built, uncommitted/unbaked/

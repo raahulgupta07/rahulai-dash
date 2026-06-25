@@ -180,6 +180,10 @@ docker commit ca-app cityagent-analytics:dev
 
 Per-org feature flags can be flipped live: `PUT /api/organization/hybrid-flags/{env}` body `{"enabled": true|false}` (or **Settings → Feature Flags**).
 
+### Share an agent as a Template
+
+A smart agent can be exported as a **Template** — its data-agnostic know-how (rules, metric formulas, example patterns, skills, persona), with data/credentials/column-names stripped. Others browse the **Templates** gallery (Studios → Templates), pick one, **bind** its required column-roles to their own columns in a wizard, and get their own agent — imported rules/metrics land *pending* for review. Export from a studio header (**Export as Template**). Versioned (`VERSION_HYBRID`-style semver), org or global scope. Flag `HYBRID_AGENT_TEMPLATES`. Reuses the Domain-Pack bind-gate + review gate. See `docs/PLAN_AGENT_TEMPLATES.md`.
+
 ### Install as an app (PWA)
 
 The frontend is an installable PWA. In Chrome/Edge, open the app and click **Install app** in the top bar (left of the 🔔 bell) or the ⊕ in the address bar — it installs to the dock/start menu as a standalone window with an offline shell. The service worker precaches the app shell but **never caches `/api` or `/ws`** (always live data/auth). Built automatically by `@vite-pwa/nuxt` during `nuxt generate` (`sw.js` + `manifest.webmanifest`).

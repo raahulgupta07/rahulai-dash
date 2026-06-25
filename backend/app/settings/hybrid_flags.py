@@ -97,6 +97,7 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_VERIFIED_METRICS": {"label": "Executable Verified Metrics", "role": "review"},
     "HYBRID_SEMANTIC_SEARCH": {"label": "Hybrid Search + KG", "role": "agent"},
     "HYBRID_CODE_ENRICH": {"label": "Code Enrich (pipeline logic)", "role": "agent"},
+    "HYBRID_AGENT_TEMPLATES": {"label": "Agent Templates (share best practices)", "role": "user"},
 }
 
 
@@ -561,6 +562,13 @@ class HybridFlags:
         # PIPELINE LOGIC prompt block. Meaning lives in code, not schemas. Default OFF.
         return _bool("HYBRID_CODE_ENRICH")
 
+    @property
+    def AGENT_TEMPLATES(self) -> bool:
+        # Share an agent's data-agnostic best practices (rules, metric formulas,
+        # example patterns, skills, persona) as a portable, versioned template that
+        # others bind to their own columns. Export/Gallery/bind. Default OFF.
+        return _bool("HYBRID_AGENT_TEMPLATES")
+
     def snapshot(self) -> dict[str, bool]:
         """All flags as a dict (for /health, debugging, tests)."""
         return {
@@ -608,6 +616,7 @@ class HybridFlags:
             "VERIFIED_METRICS": self.VERIFIED_METRICS,
             "SEMANTIC_SEARCH": self.SEMANTIC_SEARCH,
             "CODE_ENRICH": self.CODE_ENRICH,
+            "AGENT_TEMPLATES": self.AGENT_TEMPLATES,
         }
 
 

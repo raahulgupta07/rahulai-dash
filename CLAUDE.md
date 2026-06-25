@@ -272,6 +272,27 @@ additive. Flags in `hybrid_flags.py` (each needs @property + `UPGRADE_FLAGS` ent
   `config['hybrid_overrides']`. OFF: CODE_ENRICH (cost), FORECAST (prophet), SEMANTIC_SEARCH (scaffold).
   Per-org flag auto-inherits to all/new agents; true per-agent resolver NOT built.
 
+## Agent Templates — share an agent's best practices (2026-06-25, BAKED)
+Export a Studio's data-agnostic know-how (rules/metric-formulas/example-patterns/skills/persona) as a
+portable versioned template; others bind it to their columns → their own agent. Flag `HYBRID_AGENT_TEMPLATES`.
+- Model `agent_template.py` (`AgentTemplate`: slug+version, scope org/global, status draft/published,
+  body_md + manifest JSON). Mig **`agtmpl1`** off `chlogseen1`. Head now `agtmpl1`.
+- Contract: frontmatter `requires_columns:[{role,as}]` + `{as}` placeholders in body. Export
+  generalizes columns→`{role}` via profile_v2 roles. Placeholder scheme = role-lowercased,
+  index-suffixed for dupes (`{measure}`,`{measure_2}`); `requires_columns` = placeholders actually used.
+- Services `app/services/templates/`: `exporter.py` (studio→template, strips data/creds),
+  `parser.py` (frontmatter, PyYAML+hand-rolled fallback), `binder.py` (auto_match via difflib —
+  no embeddings; apply_binding; `instantiate_template` → new Studio, items born **pending**, skills via
+  StudioBoundPack, metrics draft). Routes `routes/agent_templates.py` `/api/templates`:
+  list/detail/publish/import/delete + `from-studio/{id}` (export) + `{id}/bind-preview` + `{id}/instantiate`.
+  All flag-gated + fail-soft. Registered main.py.
+- FE: nav **Templates** in Studios group; `pages/templates/index.vue` (gallery) + `[id].vue` (detail) +
+  `components/templates/BindWizard.vue` (4-step). **Export as Template** button in studio header
+  (`studios/[id]/index.vue`, gated canEdit). Raw golden SQL OFF by default in exports.
+- E2E verified live (org 55278108, flag ON): export CRM→template → list → publish → bind-preview →
+  instantiate → new Studio created. LANDMINE: `requires_columns` empty until the source studio has
+  profile_v2 (train it first); imported items always pending (review gate).
+
 ## PWA — installable desktop/mobile app (2026-06-25, BAKED)
 App installs from the browser (standalone window, dock icon, offline shell). Module `@vite-pwa/nuxt`.
 - `nuxt.config.ts` `pwa{}`: manifest (name/short_name, `display:standalone`, `start_url:/`,
@@ -302,7 +323,8 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
 **Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `hybrid-brain`,
-mig head **`chlogseen1`**. PWA (installable app + Install button) BUILT+BAKED.
+mig head **`agtmpl1`**. Agent Templates (export/gallery/bind) BUILT+BAKED.
+PWA (installable app + Install button) BUILT+BAKED.
 Changelog/"What's new" bell BUILT+BAKED.
 Intelligence Layer (8 caps + Studio rail UI) BUILT + BAKED, 5 safe flags
 ON by default org-wide. Auto-pilot tab + org-library connector model + 48 Domain Packs + async
