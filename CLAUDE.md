@@ -297,6 +297,12 @@ portable versioned template; others bind it to their columns → their own agent
   (existing / connect-upload / **skip**). `instantiate` route ALLOWS empty data_source_ids (skip =
   agent now, placeholders intact, bind later). Gallery "Use template"→openWizard (in place);
   card click→detail.
+- **v1.4.2 Studios page UX:** `StudioCard.vue` lifecycle chip draft(no src)→ready(src,0 chats)→
+  live(active<7d)→idle from source_count/chat_count/last_active_at — replaces live/idle dot + the
+  4-zero stat grid; per-card next step (draft→Add data + "connect data"; ready→train hint;
+  live/idle→real stats + Open/Chat); action bar persistent (was hover-only). Removed duplicate ghost
+  add-card in `pages/studios/index.vue` (top-right = only add). Demoted nav "New report" to outline
+  (`nav/TopNav.vue`) — one filled primary per zone.
 
 ## PWA — installable desktop/mobile app (2026-06-25, BAKED)
 App installs from the browser (standalone window, dock icon, offline shell). Module `@vite-pwa/nuxt`.
@@ -328,7 +334,8 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
 **Current state (2026-06-25):** image `cityagent-analytics:dev` on `:3007`, branch `hybrid-brain`,
-mig head **`agtmpl1`**. Agent Templates (export/gallery/bind) BUILT+BAKED.
+mig head **`agtmpl1`**, `VERSION_HYBRID`=**1.4.2**. Agent Templates (export/gallery/bind + popup
+journey + Studios-page lifecycle UX) BUILT+BAKED.
 PWA (installable app + Install button) BUILT+BAKED.
 Changelog/"What's new" bell BUILT+BAKED.
 Intelligence Layer (8 caps + Studio rail UI) BUILT + BAKED, 5 safe flags
