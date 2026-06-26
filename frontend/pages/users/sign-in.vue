@@ -70,49 +70,49 @@
             </button>
           </form>
 
-          <!-- divider -->
-          <div style="display:flex; align-items:center; gap:14px; margin:16px 0 12px;">
+          <!-- divider (only if at least one provider is enabled) -->
+          <div v-if="showProviders" style="display:flex; align-items:center; gap:14px; margin:16px 0 12px;">
             <span style="flex:1; height:1px; background:#E6DCCE;"></span>
             <span style="font-size:11.5px; font-weight:600; letter-spacing:.06em; color:#A89C8C;">OR CONTINUE WITH</span>
             <span style="flex:1; height:1px; background:#E6DCCE;"></span>
           </div>
 
-          <!-- google + microsoft -->
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-            <button type="button" @click="signInWithGoogle" :disabled="loadingProvider !== null" class="cai-prov"
+          <!-- google + microsoft (each shown only when admin-enabled) -->
+          <div v-if="showSocial" style="display:grid; gap:10px;" :style="{ gridTemplateColumns: `repeat(${socialCols}, 1fr)` }">
+            <button v-if="showGoogle" type="button" @click="signInWithGoogle" :disabled="loadingProvider !== null" class="cai-prov"
               style="display:flex; align-items:center; justify-content:center; gap:10px; background:#FCFAF6; border:1px solid #E4D9CA; border-radius:11px; padding:11px; cursor:pointer; font-family:inherit; font-size:14px; font-weight:600; color:#352F27;">
               <Spinner v-if="loadingProvider === 'google'" class="h-4 w-4" />
-              <svg v-else width="17" height="17" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+              <span v-else style="width:17px;height:17px;display:inline-flex" v-html="idpLogoSvg(googleLogo)"></span>
               Google
             </button>
-            <button type="button" @click="onMicrosoft" :disabled="loadingProvider !== null" class="cai-prov"
+            <button v-if="showMicrosoft" type="button" @click="onMicrosoft" :disabled="loadingProvider !== null" class="cai-prov"
               style="display:flex; align-items:center; justify-content:center; gap:10px; background:#FCFAF6; border:1px solid #E4D9CA; border-radius:11px; padding:11px; cursor:pointer; font-family:inherit; font-size:14px; font-weight:600; color:#352F27;">
               <Spinner v-if="loadingProvider && /microsoft|azure|entra/i.test(loadingProvider)" class="h-4 w-4" />
-              <svg v-else width="16" height="16" viewBox="0 0 18 18"><rect x="0" y="0" width="8.4" height="8.4" fill="#F25022"/><rect x="9.6" y="0" width="8.4" height="8.4" fill="#7FBA00"/><rect x="0" y="9.6" width="8.4" height="8.4" fill="#00A4EF"/><rect x="9.6" y="9.6" width="8.4" height="8.4" fill="#FFB900"/></svg>
+              <span v-else style="width:16px;height:16px;display:inline-flex" v-html="idpLogoSvg(msLogo)"></span>
               Microsoft
             </button>
           </div>
 
-          <!-- enterprise -->
-          <div style="margin-top:12px; padding:12px 14px; background:#FBF7F1; border:1px solid #ECE3D5; border-radius:13px;">
+          <!-- enterprise (only if SSO / Keycloak / LDAP enabled) -->
+          <div v-if="showEnterprise" style="margin-top:12px; padding:12px 14px; background:#FBF7F1; border:1px solid #ECE3D5; border-radius:13px;">
             <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px;">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4z" stroke="#A8330F" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="#A8330F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span style="font-size:11.5px; font-weight:600; letter-spacing:.04em; color:#8A7F70;">ENTERPRISE SIGN-IN</span>
             </div>
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
-              <button type="button" @click="onSSO" class="cai-ent"
+            <div style="display:grid; gap:8px;" :style="{ gridTemplateColumns: `repeat(${entCols}, 1fr)` }">
+              <button v-if="showSSO" type="button" @click="onSSO" class="cai-ent"
                 style="display:flex; flex-direction:column; align-items:center; gap:5px; background:#FFFFFF; border:1px solid #E4D9CA; border-radius:10px; padding:10px 8px; cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:600; color:#4A4239;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 7h3a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-3M10 12h9M16 9l3 3-3 3M9 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span style="width:18px;height:18px;display:inline-flex" v-html="idpLogoSvg(ssoLogo)"></span>
                 SSO
               </button>
-              <button type="button" @click="onKeycloak" class="cai-ent"
+              <button v-if="showKeycloak" type="button" @click="onKeycloak" class="cai-ent"
                 style="display:flex; flex-direction:column; align-items:center; gap:5px; background:#FFFFFF; border:1px solid #E4D9CA; border-radius:10px; padding:10px 8px; cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:600; color:#4A4239;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="12" r="4.5" stroke="currentColor" stroke-width="1.8"/><path d="M13.5 12H21M18 9v6M21 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span style="width:18px;height:18px;display:inline-flex" v-html="idpLogoSvg(keycloakLogo)"></span>
                 Keycloak
               </button>
-              <button type="button" @click="onLDAP" class="cai-ent"
+              <button v-if="showLdap" type="button" @click="onLDAP" class="cai-ent"
                 style="display:flex; flex-direction:column; align-items:center; gap:5px; background:#FFFFFF; border:1px solid #E4D9CA; border-radius:10px; padding:10px 8px; cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:600; color:#4A4239;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="5.5" rx="7" ry="2.8" stroke="currentColor" stroke-width="1.8"/><path d="M5 5.5v13c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-13M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                <span style="width:18px;height:18px;display:inline-flex" v-html="idpLogoSvg(ldapLogo)"></span>
                 LDAP
               </button>
             </div>
@@ -215,17 +215,42 @@ import qs from 'qs';
 
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Spinner from '~/components/Spinner.vue';
+import { idpLogoSvg } from '~/utils/idpLogos';
 
 const { t } = useI18n()
 const { rawToken } = useAuthState()
 const { fetchOrganization } = useOrganization()
 const route = useRoute()
 const googleSignIn = ref(false)
+const googleLogo = ref('google')
 const signupEnabled = ref(false)
-const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
+const oidcProviders = ref<{ name: string; enabled: boolean; logo?: string }[]>([])
 const loadingProvider = ref<string | null>(null)
 const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
 const smtpEnabled = ref(false)
+const ldapEnabled = ref(false)
+const ldapLogo = ref('ldap')
+
+// Which auth providers the admin has enabled (Settings → Identity Provider).
+// oidcProviders is already filtered to enabled-only on load. Microsoft + Keycloak
+// are stored as OIDC providers (names microsoft/azure/entra, keycloak).
+const msProvider = computed(() => oidcProviders.value.find(p => /microsoft|azure|entra/i.test(p.name)) || null)
+const keycloakProvider = computed(() => oidcProviders.value.find(p => /keycloak/i.test(p.name)) || null)
+const genericSsoProvider = computed(() => oidcProviders.value.find(p => !/microsoft|azure|entra|keycloak/i.test(p.name)) || null)
+const showGoogle = computed(() => googleSignIn.value)
+const showMicrosoft = computed(() => !!msProvider.value)
+const showKeycloak = computed(() => !!keycloakProvider.value)
+const showSSO = computed(() => !!genericSsoProvider.value)
+const showLdap = computed(() => ldapEnabled.value)
+const showSocial = computed(() => showGoogle.value || showMicrosoft.value)
+const showEnterprise = computed(() => showSSO.value || showKeycloak.value || showLdap.value)
+const showProviders = computed(() => showSocial.value || showEnterprise.value)
+// Admin-chosen logos (custom upload wins over the brand default).
+const msLogo = computed(() => msProvider.value?.logo || 'microsoft')
+const keycloakLogo = computed(() => keycloakProvider.value?.logo || 'keycloak')
+const ssoLogo = computed(() => genericSsoProvider.value?.logo || 'oidc')
+const socialCols = computed(() => (showGoogle.value ? 1 : 0) + (showMicrosoft.value ? 1 : 0))
+const entCols = computed(() => (showSSO.value ? 1 : 0) + (showKeycloak.value ? 1 : 0) + (showLdap.value ? 1 : 0))
 const isSubmitting = ref(false)
 const rememberMe = ref(true)
 const revealForm = ref(false)
@@ -416,7 +441,10 @@ onMounted(async () => {
       authMode.value = settings.auth.mode
     }
     smtpEnabled.value = settings?.smtp_enabled ?? false
+    ldapEnabled.value = !!(settings as any)?.ldap_enabled
+    ldapLogo.value = (settings as any)?.ldap_logo || 'ldap'
     googleSignIn.value = !!(settings as any)?.google_oauth?.enabled
+    googleLogo.value = (settings as any)?.google_oauth?.logo || 'google'
     signupEnabled.value = !!(settings as any)?.signup_enabled
     const hv = (settings as any)?.hybrid_version
     if (hv) hybridVersion.value = hv

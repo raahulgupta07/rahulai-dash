@@ -1,8 +1,29 @@
 from pydantic import BaseModel, validator, Field
 from typing import Dict, Any, Optional, Union, List
 import json
+import re
 from datetime import datetime
 from enum import Enum
+
+
+# ---------------------------------------------------------------------------
+# Logo validation helper
+# ---------------------------------------------------------------------------
+_LOGO_PRESET_RE = re.compile(r'^[a-z0-9_-]{1,32}$')
+_LOGO_DATA_PREFIX = "data:image/"
+_LOGO_MAX_DATA_LEN = 400_000  # ~300 KB
+
+
+def _clean_logo(v: Optional[str]) -> str:
+    """Sanitise a logo value; return "" if invalid so callers never raise."""
+    if not v:
+        return ""
+    s = str(v)
+    if _LOGO_PRESET_RE.match(s):
+        return s
+    if s.startswith(_LOGO_DATA_PREFIX) and len(s) <= _LOGO_MAX_DATA_LEN:
+        return s
+    return ""
 
 class FeatureState(str, Enum):
     """Explicit states for features"""
@@ -246,6 +267,7 @@ class OrgLdapSchema(BaseModel):
     auto_provision_users: bool = False
     connection_timeout: int = 10
     page_size: int = 500
+    logo: str = ""
 
 
 class OrgLdapUpdate(BaseModel):
@@ -270,6 +292,7 @@ class OrgLdapUpdate(BaseModel):
     auto_provision_users: bool = False
     connection_timeout: int = 10
     page_size: int = 500
+    logo: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +303,7 @@ class OrgSsoGoogleSchema(BaseModel):
     enabled: bool = False
     client_id: Optional[str] = None
     client_secret_set: bool = False
+    logo: str = ""
 
 
 class OrgSsoOidcProviderSchema(BaseModel):
@@ -292,6 +316,7 @@ class OrgSsoOidcProviderSchema(BaseModel):
     scopes: List[str] = ["openid", "profile", "email"]
     sync_groups: bool = False
     group_claim: str = "groups"
+    logo: str = ""
 
 
 class OrgSsoSchema(BaseModel):
@@ -306,6 +331,7 @@ class OrgSsoGoogleUpdate(BaseModel):
     enabled: bool = False
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
+    logo: Optional[str] = None
 
 
 class OrgSsoOidcProviderUpdate(BaseModel):
@@ -319,6 +345,7 @@ class OrgSsoOidcProviderUpdate(BaseModel):
     scopes: List[str] = ["openid", "profile", "email"]
     sync_groups: bool = False
     group_claim: str = "groups"
+    logo: Optional[str] = None
 
 
 class OrgSsoOidcUpdate(BaseModel):

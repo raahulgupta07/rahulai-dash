@@ -12,70 +12,49 @@
 
       <div class="border border-[#E9E0D3] rounded-2xl overflow-hidden bg-white">
 
-        <!-- Google row -->
-        <div class="flex items-center gap-3 px-5 py-3.5 border-b border-[#E9E0D3]">
-          <span class="w-6 h-6 rounded-md border border-[#E9E0D3] bg-[#F4EEE5] flex items-center justify-center text-xs font-bold text-[#6b6b6b] flex-shrink-0">G</span>
-          <span class="text-sm font-medium text-[#1f2328] flex-1">Google</span>
-          <span
-            class="text-[11px] font-medium px-2 py-0.5 rounded-full"
-            :class="ssoGoogle.enabled ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-[#F4EEE5] text-[#6b6b6b] border border-[#E9E0D3]'"
-          >{{ ssoGoogle.enabled ? 'Enabled' : 'Disabled' }}</span>
-          <button
-            type="button"
-            class="px-3 py-2 text-xs border border-[#E9E0D3] rounded-lg text-[#1f2328] bg-white hover:bg-[#F4EEE5] transition-colors cursor-pointer"
-            @click="openModal('google')"
-          >Configure</button>
-        </div>
-
-        <!-- Microsoft row -->
-        <div class="flex items-center gap-3 px-5 py-3.5 border-b border-[#E9E0D3]">
-          <span class="w-6 h-6 rounded-md border border-[#E9E0D3] bg-[#F4EEE5] flex items-center justify-center text-xs font-bold text-[#6b6b6b] flex-shrink-0">▦</span>
-          <span class="text-sm font-medium text-[#1f2328] flex-1">Microsoft / Entra</span>
-          <span
-            class="text-[11px] font-medium px-2 py-0.5 rounded-full"
-            :class="ssoMicrosoft.enabled ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-[#F4EEE5] text-[#6b6b6b] border border-[#E9E0D3]'"
-          >{{ ssoMicrosoft.enabled ? 'Enabled' : 'Disabled' }}</span>
-          <button
-            type="button"
-            class="px-3 py-2 text-xs border border-[#E9E0D3] rounded-lg text-[#1f2328] bg-white hover:bg-[#F4EEE5] transition-colors cursor-pointer"
-            @click="openModal('microsoft')"
-          >Configure</button>
-        </div>
-
-        <!-- Custom OIDC provider rows -->
+        <!-- Provider rows: Google · Microsoft · Okta · Keycloak · custom OIDC -->
         <div
-          v-for="(provider, idx) in oidcProviders"
-          :key="provider.name || idx"
+          v-for="row in ssoRows"
+          :key="row.id"
           class="flex items-center gap-3 px-5 py-3.5 border-b border-[#E9E0D3]"
         >
-          <span class="w-6 h-6 rounded-md border border-[#E9E0D3] bg-[#F4EEE5] flex items-center justify-center text-[10px] font-bold text-[#6b6b6b] flex-shrink-0">OIDC</span>
-          <span class="text-sm font-medium text-[#1f2328] flex-1">{{ provider.label || provider.name || 'Unnamed provider' }}</span>
-          <span
-            class="text-[11px] font-medium px-2 py-0.5 rounded-full"
-            :class="provider.enabled ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-[#F4EEE5] text-[#6b6b6b] border border-[#E9E0D3]'"
-          >{{ provider.enabled ? 'Enabled' : 'Disabled' }}</span>
+          <span class="w-7 h-7 rounded-md border border-[#E9E0D3] bg-white flex items-center justify-center flex-shrink-0 p-1 [&_svg]:w-full [&_svg]:h-full [&_img]:w-full [&_img]:h-full" v-html="idpLogoSvg(row.logo)"></span>
+          <span class="text-sm font-medium text-[#1f2328] flex-1 truncate">{{ row.name }}</span>
+          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap" :class="pillClass(row.enabled, row.configured)">{{ pillText(row.enabled, row.configured) }}</span>
           <button
             type="button"
-            class="px-3 py-2 text-xs border border-[#E9E0D3] rounded-lg text-[#1f2328] bg-white hover:bg-[#F4EEE5] transition-colors cursor-pointer"
-            @click="openModal('oidc', idx)"
-          >Configure</button>
+            class="px-3 py-2 text-xs rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+            :class="(row.enabled && !row.configured) ? 'border border-[#e7c79a] text-[#9A5A12] bg-[#FBEEDD] hover:bg-[#f6e3c8]' : 'border border-[#E9E0D3] text-[#1f2328] bg-white hover:bg-[#F4EEE5]'"
+            @click="row.configure()"
+          >{{ (row.enabled && !row.configured) ? 'Set up →' : 'Configure' }}</button>
           <button
+            type="button"
+            class="relative w-9 h-5 rounded-full transition-colors focus:outline-none flex-shrink-0"
+            :class="row.enabled ? 'bg-[#C2541E]' : 'bg-[#E9E0D3]'"
+            :title="row.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'"
+            @click="row.toggle()"
+          >
+            <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all" :class="row.enabled ? 'left-[18px]' : 'left-0.5'"></span>
+          </button>
+          <button
+            v-if="row.removable"
             type="button"
             class="text-xs text-red-400 hover:text-red-600 px-1"
-            @click="removeOidcProvider(idx)"
+            title="Remove provider"
+            @click="row.remove && row.remove()"
           >&#x2715;</button>
         </div>
 
-        <!-- Add OIDC provider -->
+        <!-- Add provider (opens the provider library) -->
         <div class="px-5 py-3.5 border-b border-[#E9E0D3]">
           <button
             type="button"
             class="flex items-center gap-2 text-xs text-[#C2541E] font-medium border border-dashed border-[#E9E0D3] rounded-xl px-4 py-2.5 hover:border-[#C2541E] hover:bg-[#FBEFE4] transition-colors"
-            @click="addOidcProvider"
+            @click="showLibrary = true"
           >
             <span>+</span>
-            <span>Add OIDC provider</span>
-            <span class="text-[#9a958c] font-normal">· Okta · Auth0 · Keycloak …</span>
+            <span>Add provider</span>
+            <span class="text-[#9a958c] font-normal">· Okta · Auth0 · Keycloak · OneLogin · Ping · Generic OIDC …</span>
           </button>
         </div>
 
@@ -164,7 +143,7 @@
         <!-- SCIM row -->
         <div class="border border-[#E9E0D3] rounded-2xl overflow-hidden bg-white">
           <div class="flex items-center gap-3 px-5 py-3.5">
-            <span class="w-6 h-6 rounded-md border border-[#E9E0D3] bg-[#F4EEE5] flex items-center justify-center text-[10px] font-bold text-[#6b6b6b] flex-shrink-0">&#x21C4;</span>
+            <span class="w-7 h-7 rounded-md border border-[#E9E0D3] bg-white flex items-center justify-center flex-shrink-0 p-1 [&_svg]:w-full [&_svg]:h-full" v-html="idpLogoSvg('scim')"></span>
             <span class="text-sm font-medium text-[#1f2328] flex-1">SCIM Provisioning</span>
             <span
               class="text-[11px] font-medium px-2 py-0.5 rounded-full"
@@ -210,17 +189,24 @@
         <div class="border border-[#E9E0D3] rounded-2xl overflow-hidden bg-white">
           <!-- LDAP row -->
           <div class="flex items-center gap-3 px-5 py-3.5" :class="ldapStatus?.ldap_configured ? 'border-b border-[#E9E0D3]' : ''">
-            <span class="w-6 h-6 rounded-md border border-[#E9E0D3] bg-[#F4EEE5] flex items-center justify-center text-[10px] font-bold text-[#6b6b6b] flex-shrink-0">&#x1F5C4;</span>
+            <span class="w-7 h-7 rounded-md border border-[#E9E0D3] bg-white flex items-center justify-center flex-shrink-0 p-1 [&_svg]:w-full [&_svg]:h-full [&_img]:w-full [&_img]:h-full" v-html="idpLogoSvg(ldapForm.logo || 'ldap')"></span>
             <span class="text-sm font-medium text-[#1f2328] flex-1">LDAP Directory Sync</span>
-            <span
-              class="text-[11px] font-medium px-2 py-0.5 rounded-full"
-              :class="ldapForm.enabled && ldapStatus?.ldap_configured ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-[#F4EEE5] text-[#6b6b6b] border border-[#E9E0D3]'"
-            >{{ ldapForm.enabled && ldapStatus?.ldap_configured ? 'Enabled' : 'Not configured' }}</span>
+            <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap" :class="pillClass(ldapForm.enabled, !!ldapStatus?.ldap_configured)">{{ pillText(ldapForm.enabled, !!ldapStatus?.ldap_configured) }}</span>
             <button
               type="button"
-              class="px-3 py-2 text-xs border border-[#E9E0D3] rounded-lg text-[#1f2328] bg-white hover:bg-[#F4EEE5] transition-colors cursor-pointer"
+              class="px-3 py-2 text-xs rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+              :class="(ldapForm.enabled && !ldapStatus?.ldap_configured) ? 'border border-[#e7c79a] text-[#9A5A12] bg-[#FBEEDD] hover:bg-[#f6e3c8]' : 'border border-[#E9E0D3] text-[#1f2328] bg-white hover:bg-[#F4EEE5]'"
               @click="openModal('ldap')"
-            >Configure</button>
+            >{{ (ldapForm.enabled && !ldapStatus?.ldap_configured) ? 'Set up →' : 'Configure' }}</button>
+            <button
+              type="button"
+              class="relative w-9 h-5 rounded-full transition-colors focus:outline-none flex-shrink-0"
+              :class="ldapForm.enabled ? 'bg-[#C2541E]' : 'bg-[#E9E0D3]'"
+              :title="ldapForm.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'"
+              @click="quickToggleLdap()"
+            >
+              <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all" :class="ldapForm.enabled ? 'left-[18px]' : 'left-0.5'"></span>
+            </button>
           </div>
 
           <!-- Configured status + sync actions (only when connected) -->
@@ -369,6 +355,7 @@
 
     <!-- Google Modal -->
     <SettingsProviderConfigModal :model-value="activeModal === 'google'" title="Configure Google SSO" @close="closeModal">
+      <IdpLogoPicker v-model="ssoGoogle.logo" />
       <!-- Redirect URI -->
       <div class="mb-4 rounded-xl border border-[#E9E0D3] bg-[#faf8f3] px-3 py-2.5">
         <div class="flex items-center justify-between mb-1">
@@ -441,6 +428,7 @@
 
     <!-- Microsoft Modal -->
     <SettingsProviderConfigModal :model-value="activeModal === 'microsoft'" title="Configure Microsoft / Entra SSO" @close="closeModal">
+      <IdpLogoPicker v-model="ssoMicrosoft.logo" />
       <!-- Redirect URI -->
       <div class="mb-4 rounded-xl border border-[#E9E0D3] bg-[#faf8f3] px-3 py-2.5">
         <div class="flex items-center justify-between mb-1">
@@ -529,6 +517,7 @@
     <!-- Custom OIDC Modal -->
     <SettingsProviderConfigModal :model-value="activeModal === 'oidc'" :title="activeOidcIdx !== null && oidcProviders[activeOidcIdx] ? `Configure ${oidcProviders[activeOidcIdx].label || oidcProviders[activeOidcIdx].name || 'OIDC Provider'}` : 'Configure OIDC Provider'" @close="closeModal">
       <template v-if="activeOidcIdx !== null && oidcProviders[activeOidcIdx]">
+        <IdpLogoPicker v-model="oidcProviders[activeOidcIdx].logo" />
         <!-- Redirect URI -->
         <div class="mb-4 rounded-xl border border-[#E9E0D3] bg-[#faf8f3] px-3 py-2.5">
           <div class="flex items-center justify-between mb-1">
@@ -713,6 +702,7 @@
 
     <!-- LDAP Modal -->
     <SettingsProviderConfigModal :model-value="activeModal === 'ldap'" title="Configure LDAP Directory Sync" @close="closeModal">
+      <IdpLogoPicker v-model="ldapForm.logo" />
       <!-- Enable toggle -->
       <div class="flex items-center justify-between mb-4">
         <span class="text-sm font-semibold text-[#1f2328]">LDAP Configuration</span>
@@ -968,12 +958,17 @@
       </div>
     </div>
 
+    <!-- Provider library (Add provider) -->
+    <IdpProviderLibraryModal :open="showLibrary" @close="showLibrary = false" @select="onLibrarySelect" />
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { useScimTokens, type ScimToken } from '~/ee/composables/useScimTokens'
 import { useLdapSync, type SyncResult as LDAPSyncResult } from '~/ee/composables/useLdapSync'
+import { idpLogoSvg } from '~/utils/idpLogos'
+import { IDP_TEMPLATES, type IdpTemplate } from '~/utils/idpTemplates'
 
 definePageMeta({
   auth: true,
@@ -1016,6 +1011,7 @@ const authModeOptions = [
 
 const ssoGoogle = reactive({
   enabled: false,
+  logo: 'google',
   client_id: '',
   client_secret: '',
   client_secret_set: false,
@@ -1026,6 +1022,7 @@ const ssoGoogleTestResult = ref<{ ok: boolean; text: string } | null>(null)
 
 const ssoMicrosoft = reactive({
   enabled: false,
+  logo: 'microsoft',
   tenant_id: '',
   client_id: '',
   client_secret: '',
@@ -1040,6 +1037,7 @@ interface OidcProvider {
   name: string
   label: string
   enabled: boolean
+  logo: string
   issuer: string
   client_id: string
   client_secret: string
@@ -1076,6 +1074,7 @@ async function loadSso() {
     ssoAuthMode.value = data.auth_mode || 'hybrid'
     if (data.google) {
       ssoGoogle.enabled = data.google.enabled ?? false
+      ssoGoogle.logo = data.google.logo || 'google'
       ssoGoogle.client_id = data.google.client_id || ''
       ssoGoogle.client_secret_set = data.google.client_secret_set ?? false
     }
@@ -1085,6 +1084,7 @@ async function loadSso() {
         // Parse tenant from issuer: https://login.microsoftonline.com/<tenant>/v2.0
         const m = (p.issuer || '').match(/microsoftonline\.com\/([^/]+)\/v2\.0/)
         ssoMicrosoft.enabled = p.enabled ?? false
+        ssoMicrosoft.logo = p.logo || 'microsoft'
         ssoMicrosoft.tenant_id = m ? m[1] : ''
         ssoMicrosoft.client_id = p.client_id || ''
         ssoMicrosoft.client_secret_set = p.client_secret_set ?? false
@@ -1094,6 +1094,7 @@ async function loadSso() {
           name: p.name || '',
           label: p.label || '',
           enabled: p.enabled ?? false,
+          logo: p.logo || p.name || 'oidc',
           issuer: p.issuer || '',
           client_id: p.client_id || '',
           client_secret: '',
@@ -1113,7 +1114,7 @@ async function loadSso() {
 async function handleSaveGoogle() {
   ssoGoogleSaving.value = true
   try {
-    const body: any = { enabled: ssoGoogle.enabled, client_id: ssoGoogle.client_id }
+    const body: any = { enabled: ssoGoogle.enabled, logo: ssoGoogle.logo, client_id: ssoGoogle.client_id }
     if (ssoGoogle.client_secret) body.client_secret = ssoGoogle.client_secret
     const res = await useMyFetch('/api/organization/sso/google', { method: 'PUT', body })
     if (res.status.value === 'success') {
@@ -1157,6 +1158,7 @@ function buildMicrosoftOidcPayload() {
     name: 'microsoft',
     label: 'Microsoft',
     enabled: ssoMicrosoft.enabled,
+    logo: ssoMicrosoft.logo || 'microsoft',
     issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
     client_id: ssoMicrosoft.client_id,
     sync_groups: ssoMicrosoft.sync_groups,
@@ -1217,6 +1219,7 @@ function buildOidcPayload(p: OidcProvider) {
     name: p.name,
     label: p.label,
     enabled: p.enabled,
+    logo: p.logo || p.name || 'oidc',
     issuer: p.issuer,
     client_id: p.client_id,
     sync_groups: p.sync_groups,
@@ -1263,6 +1266,7 @@ function addOidcProvider() {
     name: '',
     label: '',
     enabled: true,
+    logo: 'oidc',
     issuer: '',
     client_id: '',
     client_secret: '',
@@ -1390,6 +1394,7 @@ const hasFetchedLdap = ref(false)
 // LDAP config form state
 const ldapForm = reactive({
   enabled: false,
+  logo: 'ldap',
   url: '',
   bind_dn: '',
   bind_password: '',
@@ -1424,6 +1429,7 @@ async function loadLdapConfig() {
     const data = res.data.value as any
     if (!data) return
     ldapForm.enabled = data.enabled ?? false
+    ldapForm.logo = data.logo || 'ldap'
     ldapForm.url = data.url || ''
     ldapForm.bind_dn = data.bind_dn || ''
     ldapForm.bind_password_set = data.bind_password_set ?? false
@@ -1449,6 +1455,7 @@ async function loadLdapConfig() {
 function buildLdapPayload() {
   const p: any = {
     enabled: ldapForm.enabled,
+    logo: ldapForm.logo,
     url: ldapForm.url,
     bind_dn: ldapForm.bind_dn,
     use_ssl: ldapForm.use_ssl,
@@ -1575,6 +1582,158 @@ watch(
   },
   { immediate: true }
 )
+
+// ── Logo + smart-status + provider-library (IdP redesign) ──────────────────
+const showLibrary = ref(false)
+
+// 4-state pill from (enabled × configured)
+function pillText(enabled: boolean, configured: boolean) {
+  if (enabled && configured) return '● On · Ready'
+  if (enabled && !configured) return '⚠ On · Needs setup'
+  if (!enabled && configured) return '○ Off · Configured'
+  return '○ Disabled'
+}
+function pillClass(enabled: boolean, configured: boolean) {
+  if (enabled && configured) return 'bg-[#E7F2EC] text-[#2f7a52] border border-[#cfe6da]'
+  if (enabled && !configured) return 'bg-[#FBEEDD] text-[#9A5A12] border border-[#eed6b3]'
+  return 'bg-[#F4EEE5] text-[#6b6b6b] border border-[#E9E0D3]'
+}
+
+const FIXED_DEFAULT_KEYS = ['okta', 'keycloak']
+function findOidcIdx(name: string) {
+  return oidcProviders.value.findIndex(p => (p.name || '').toLowerCase() === name)
+}
+function oidcConfigured(p: OidcProvider) {
+  return !!(p.client_secret_set || (p.client_id && p.issuer))
+}
+
+async function quickToggleGoogle() {
+  ssoGoogle.enabled = !ssoGoogle.enabled
+  await handleSaveGoogle()
+}
+async function quickToggleMicrosoft() {
+  ssoMicrosoft.enabled = !ssoMicrosoft.enabled
+  await handleSaveMicrosoft()
+}
+async function quickToggleOidc(idx: number) {
+  const p = oidcProviders.value[idx]
+  if (!p) return
+  p.enabled = !p.enabled
+  await handleSaveOidc()
+}
+async function quickToggleLdap() {
+  ldapForm.enabled = !ldapForm.enabled
+  await handleLdapSave()
+}
+
+// Create a provider from a library template (or a default Okta/Keycloak row).
+// enableOnly=true → persist immediately as enabled-but-unconfigured (amber state).
+async function createFromTemplate(key: string, opts: { enableOnly?: boolean } = {}) {
+  const tpl = IDP_TEMPLATES.find(t => t.key === key)
+  const isGeneric = key === 'oidc' || !tpl
+  oidcProviders.value.push({
+    name: isGeneric ? '' : key,
+    label: tpl ? tpl.name : '',
+    enabled: true,
+    logo: tpl ? tpl.logo : 'oidc',
+    issuer: '',
+    client_id: '',
+    client_secret: '',
+    client_secret_set: false,
+    scopesCsv: (tpl ? tpl.scopes : ['openid', 'profile', 'email']).join(','),
+    sync_groups: false,
+    group_claim: tpl ? tpl.groupClaim : 'groups',
+  })
+  const idx = oidcProviders.value.length - 1
+  if (opts.enableOnly) {
+    await handleSaveOidc()
+  } else {
+    openModal('oidc', idx)
+  }
+}
+
+function onLibrarySelect(tpl: IdpTemplate) {
+  showLibrary.value = false
+  const existing = findOidcIdx(tpl.key)
+  if (existing >= 0 && tpl.key !== 'oidc') {
+    openModal('oidc', existing)
+    return
+  }
+  createFromTemplate(tpl.key)
+}
+
+// Default catalog row (Okta/Keycloak): backed by an oidc provider if present.
+function defaultRow(key: string, name: string) {
+  const idx = findOidcIdx(key)
+  if (idx >= 0) {
+    const p = oidcProviders.value[idx]
+    return {
+      id: 'oidc-' + idx,
+      name: p.label || name,
+      logo: p.logo || key,
+      enabled: p.enabled,
+      configured: oidcConfigured(p),
+      removable: true,
+      configure: () => openModal('oidc', idx),
+      toggle: () => quickToggleOidc(idx),
+      remove: () => removeOidcProvider(idx),
+    }
+  }
+  return {
+    id: 'default-' + key,
+    name,
+    logo: key,
+    enabled: false,
+    configured: false,
+    removable: false,
+    configure: () => createFromTemplate(key),
+    toggle: () => createFromTemplate(key, { enableOnly: true }),
+    remove: undefined as undefined | (() => void),
+  }
+}
+
+// All SSO rows in display order: Google · Microsoft · Okta · Keycloak · custom.
+const ssoRows = computed(() => {
+  const rows: any[] = [
+    {
+      id: 'google',
+      name: 'Google',
+      logo: ssoGoogle.logo || 'google',
+      enabled: ssoGoogle.enabled,
+      configured: !!(ssoGoogle.client_secret_set || ssoGoogle.client_id),
+      removable: false,
+      configure: () => openModal('google'),
+      toggle: quickToggleGoogle,
+    },
+    {
+      id: 'microsoft',
+      name: 'Microsoft / Entra',
+      logo: ssoMicrosoft.logo || 'microsoft',
+      enabled: ssoMicrosoft.enabled,
+      configured: !!(ssoMicrosoft.client_secret_set || ssoMicrosoft.client_id),
+      removable: false,
+      configure: () => openModal('microsoft'),
+      toggle: quickToggleMicrosoft,
+    },
+    defaultRow('okta', 'Okta'),
+    defaultRow('keycloak', 'Keycloak'),
+  ]
+  oidcProviders.value.forEach((p, idx) => {
+    if (FIXED_DEFAULT_KEYS.includes((p.name || '').toLowerCase())) return
+    rows.push({
+      id: 'oidc-' + idx,
+      name: p.label || p.name || 'Unnamed provider',
+      logo: p.logo || p.name || 'oidc',
+      enabled: p.enabled,
+      configured: oidcConfigured(p),
+      removable: true,
+      configure: () => openModal('oidc', idx),
+      toggle: () => quickToggleOidc(idx),
+      remove: () => removeOidcProvider(idx),
+    })
+  })
+  return rows
+})
 
 onMounted(() => {
   loadSso()

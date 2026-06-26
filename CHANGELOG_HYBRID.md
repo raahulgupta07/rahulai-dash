@@ -9,6 +9,22 @@ Bullet rules (this is the user-facing "What's new" feed):
     Hidden from the popover; shown collapsed on the full /changelog page only.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.29.0 — Identity Provider: brand logos, on/off toggles, and a provider library  (2026-06-26)
+- Every sign-in method (Google, Microsoft, Okta, Keycloak, OIDC, LDAP) now shows its real brand logo, on the settings page and on the login screen.
+- Each method has a simple On/Off switch right in the list. Turn one on even before it's fully set up — it just shows an "On · Needs setup" note, and the login button errors politely until you finish.
+- Okta and Keycloak are now ready-to-use options out of the box, and a new "Add provider" library lets you pick from Auth0, OneLogin, Ping, JumpCloud, AD FS, and more — each pre-filled so setup is faster.
+- When configuring any connector (LDAP included) you can choose its logo from a built-in set or upload your own.
+  - New `frontend/utils/idpLogos.ts` (preset brand SVGs + `idpLogoSvg`), `utils/idpTemplates.ts` (`IDP_TEMPLATES` catalog), `components/idp/IdpLogoPicker.vue` (v-model, preset grid + ≤300 KB upload→data URL), `components/idp/IdpProviderLibraryModal.vue` (`:open`/`@close`/`@select`).
+  - `pages/settings/identity-provider.vue`: rows rebuilt as a `ssoRows` computed (Google · Microsoft · Okta · Keycloak defaults · custom OIDC) with logo + smart 4-state pill (`pillText`/`pillClass`) + inline quick-toggle (saves immediately) + library "Add provider"; logo picker added to every config modal. Okta/Keycloak/library picks flow through the existing shared OIDC modal (prefilled from a template); no bespoke modals.
+  - `pages/users/sign-in.vue`: buttons render `idpLogoSvg(logo)` per provider (custom upload wins over brand default).
+  - Backend: `logo: str` persisted on Google/OIDC/LDAP (`_clean_logo` = preset key OR `data:image/…` ≤400 KB, fail-soft ""), surfaced via `/sso` + `/api/settings` (`google_oauth.logo`, `oidc_providers[].logo`, `ldap_logo`). SCIM has no config object → no logo (cosmetic preset only).
+
+## v1.28.0 — Login page shows only the sign-in methods you've enabled  (2026-06-26)
+- The Google, Microsoft, SSO, Keycloak, and LDAP buttons on the login page now appear only when an admin has turned that method on in Settings → Identity Provider. Disabled methods are hidden — no more dead buttons.
+- If you turn every external method off, the login page cleanly shows just the email/password form.
+  - `/api/settings` now returns `ldap_enabled` (new `get_effective_ldap_enabled()` — DB org config overrides file, fail-soft False). Google + Microsoft + Keycloak already came through `oidc_providers` (Microsoft/Keycloak are stored as OIDC providers).
+  - `pages/users/sign-in.vue`: per-button `v-if` on enabled state (`showGoogle/showMicrosoft/showKeycloak/showSSO/showLdap`); social + enterprise rows use dynamic `repeat(N,1fr)` columns so remaining buttons stay full-width; "OR CONTINUE WITH" divider + enterprise box hide when empty. No auth-logic change — authorize endpoints still enforce server-side.
+
 ## v1.27.0 — Tidier card buttons on Decks and Dashboards  (2026-06-26)
 - The Open / Chat buttons on deck cards no longer wrap onto two lines — they sit flat and are the same size.
 - The Chat / Dashboard buttons on dashboard cards are now exactly the same width.

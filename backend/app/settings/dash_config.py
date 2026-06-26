@@ -117,6 +117,7 @@ class OIDCProvider(BaseModel):
     # UI niceties
     label: Optional[str] = None
     icon: Optional[str] = None
+    logo: str = ""
     # Advanced options
     pkce: bool = True
     client_auth_method: str = "basic"  # basic | post

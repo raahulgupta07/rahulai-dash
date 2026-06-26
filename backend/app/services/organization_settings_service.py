@@ -22,6 +22,7 @@ from app.schemas.organization_settings_schema import (
     OrgSsoGoogleUpdate,
     OrgSsoOidcUpdate,
     OrgSsoAuthModeUpdate,
+    _clean_logo,
 )
 from datetime import datetime
 import os
@@ -778,6 +779,7 @@ class OrganizationSettingsService:
             auto_provision_users=bool(raw.get("auto_provision_users", False)),
             connection_timeout=int(raw.get("connection_timeout") or 10),
             page_size=int(raw.get("page_size") or 500),
+            logo=_clean_logo(raw.get("logo")),
         )
 
     async def update_ldap(self, db: AsyncSession, organization: Organization, current_user: User, data: OrgLdapUpdate) -> OrgLdapSchema:
@@ -814,6 +816,7 @@ class OrganizationSettingsService:
             "auto_provision_users": bool(data.auto_provision_users),
             "connection_timeout": int(data.connection_timeout or 10),
             "page_size": int(data.page_size or 500),
+            "logo": _clean_logo(getattr(data, "logo", None)),
         }
         if data.bind_password:
             ldap["bind_password_enc"] = encrypt_secret(data.bind_password)
@@ -928,6 +931,7 @@ class OrganizationSettingsService:
             enabled=bool(g.get("enabled", False)),
             client_id=g.get("client_id"),
             client_secret_set=bool(g.get("client_secret_enc")),
+            logo=_clean_logo(g.get("logo")),
         )
 
         oidc_list = []
@@ -942,6 +946,7 @@ class OrganizationSettingsService:
                 scopes=p.get("scopes") or ["openid", "profile", "email"],
                 sync_groups=bool(p.get("sync_groups", False)),
                 group_claim=p.get("group_claim") or "groups",
+                logo=_clean_logo(p.get("logo")),
             ))
 
         return OrgSsoSchema(
@@ -966,6 +971,7 @@ class OrganizationSettingsService:
             "enabled": bool(data.enabled),
             "client_id": (data.client_id or "").strip() or None,
             "client_secret_enc": existing_g.get("client_secret_enc"),
+            "logo": _clean_logo(getattr(data, "logo", None)),
         }
         if data.client_secret:
             google["client_secret_enc"] = encrypt_secret(data.client_secret)
@@ -1018,6 +1024,7 @@ class OrganizationSettingsService:
                 "scopes": p.scopes or ["openid", "profile", "email"],
                 "sync_groups": bool(p.sync_groups),
                 "group_claim": p.group_claim or "groups",
+                "logo": _clean_logo(getattr(p, "logo", None)),
             }
             if p.client_secret:
                 provider["client_secret_enc"] = encrypt_secret(p.client_secret)
@@ -1237,6 +1244,7 @@ async def get_effective_google_oauth():
             "enabled": bool(g.get("enabled", False)),
             "client_id": g.get("client_id"),
             "client_secret": decrypt_secret(g.get("client_secret_enc")),
+            "logo": _clean_logo(g.get("logo")),
         }
 
     # Fall back to file config
@@ -1245,6 +1253,7 @@ async def get_effective_google_oauth():
         "enabled": file_g.enabled,
         "client_id": file_g.client_id,
         "client_secret": file_g.client_secret,
+        "logo": "",
     }
 
 
@@ -1273,6 +1282,7 @@ async def get_effective_oidc_providers() -> list:
                 scopes=p.get("scopes") or ["openid", "profile", "email"],
                 sync_groups=bool(p.get("sync_groups", False)),
                 group_claim=p.get("group_claim") or "groups",
+                logo=_clean_logo(p.get("logo")),
             ))
         return result
 
@@ -1329,3 +1339,77 @@ async def get_effective_signup_enabled() -> bool:
             return file_default
     except Exception:
         return file_default
+
+
+async def get_effective_ldap_enabled() -> bool:
+    """Return effective LDAP-enabled flag (DB overrides file config).
+
+    Reads config['ldap'].enabled from the first OrganizationSettings row,
+    falling back to dash_config.ldap.enabled. Used by the public /settings
+    endpoint so the login page can show the LDAP button only when it's on.
+    Never raises — returns False on any error.
+    """
+    from app.settings.config import settings as app_settings
+
+    file_ldap = getattr(app_settings.dash_config, "ldap", None)
+    file_default = bool(getattr(file_ldap, "enabled", False)) if file_ldap else False
+    try:
+        from app.dependencies import async_session_maker
+        from sqlalchemy import asc
+        from app.models.organization import Organization as OrgModel
+
+        async with async_session_maker() as db:
+            org_res = await db.execute(
+                select(OrgModel).order_by(asc(OrgModel.created_at)).limit(1)
+            )
+            org = org_res.scalar_one_or_none()
+            if not org:
+                return file_default
+            row_res = await db.execute(
+                select(OrganizationSettings).filter(
+                    OrganizationSettings.organization_id == org.id
+                )
+            )
+            row = row_res.scalar_one_or_none()
+            if not row:
+                return file_default
+            ldap = (row.config or {}).get("ldap")
+            if isinstance(ldap, dict) and "enabled" in ldap:
+                return bool(ldap.get("enabled"))
+            return file_default
+    except Exception:
+        return file_default
+
+
+async def get_effective_ldap_logo() -> str:
+    """Return the LDAP connector logo string (DB overrides; fail-soft returns "").
+
+    Reads config['ldap'].logo from the first OrganizationSettings row.
+    Falls back to "" on any error or when no logo is stored.
+    """
+    try:
+        from app.dependencies import async_session_maker
+        from sqlalchemy import asc
+        from app.models.organization import Organization as OrgModel
+
+        async with async_session_maker() as db:
+            org_res = await db.execute(
+                select(OrgModel).order_by(asc(OrgModel.created_at)).limit(1)
+            )
+            org = org_res.scalar_one_or_none()
+            if not org:
+                return ""
+            row_res = await db.execute(
+                select(OrganizationSettings).filter(
+                    OrganizationSettings.organization_id == org.id
+                )
+            )
+            row = row_res.scalar_one_or_none()
+            if not row:
+                return ""
+            ldap = (row.config or {}).get("ldap")
+            if isinstance(ldap, dict):
+                return _clean_logo(ldap.get("logo"))
+            return ""
+    except Exception:
+        return ""

@@ -28,31 +28,43 @@ async def get_frontend_settings():
             get_effective_oidc_providers,
             get_effective_auth_mode,
             get_effective_signup_enabled,
+            get_effective_ldap_enabled,
+            get_effective_ldap_logo,
         )
         eff_google = await get_effective_google_oauth()
         eff_oidc = await get_effective_oidc_providers()
         eff_mode = await get_effective_auth_mode()
         google_enabled = eff_google.get("enabled", False)
-        oidc_list = [{"name": p.name, "enabled": p.enabled} for p in eff_oidc]
+        google_logo = eff_google.get("logo", "")
+        oidc_list = [{"name": p.name, "enabled": p.enabled, "logo": getattr(p, "logo", "")} for p in eff_oidc]
         auth_mode = eff_mode
         signup_enabled = await get_effective_signup_enabled()
+        ldap_enabled = await get_effective_ldap_enabled()
+        ldap_logo = await get_effective_ldap_logo()
     except Exception:
         google_enabled = settings.dash_config.google_oauth.enabled
+        google_logo = ""
         oidc_list = [
-            {"name": p.name, "enabled": p.enabled}
+            {"name": p.name, "enabled": p.enabled, "logo": getattr(p, "logo", "")}
             for p in getattr(settings.dash_config, "oidc_providers", []) or []
         ]
         auth_mode = getattr(settings.dash_config, 'auth').mode if hasattr(settings.dash_config, 'auth') else 'hybrid'
         signup_enabled = bool(settings.dash_config.features.allow_uninvited_signups)
+        _file_ldap = getattr(settings.dash_config, "ldap", None)
+        ldap_enabled = bool(getattr(_file_ldap, "enabled", False)) if _file_ldap else False
+        ldap_logo = ""
 
     return JSONResponse({
         "google_oauth": {
             "enabled": google_enabled,
+            "logo": google_logo,
         },
         "auth": {
             "mode": auth_mode,
         },
         "oidc_providers": oidc_list,
+        "ldap_enabled": ldap_enabled,
+        "ldap_logo": ldap_logo,
         "signup_enabled": signup_enabled,
         "features": {
             "allow_uninvited_signups": settings.dash_config.features.allow_uninvited_signups,
