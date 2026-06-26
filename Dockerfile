@@ -64,6 +64,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/* && \
+    rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg && \
     npm install --global yarn@1.22.22
 
 # Set the working directory in the container for the frontend

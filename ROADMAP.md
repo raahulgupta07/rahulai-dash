@@ -3,6 +3,7 @@
 > Living plan. How the platform becomes **one product** instead of a pile of features.
 > Companion to `CLAUDE.md` (codebase map + landmines) and `DEVLOG.md` (shipped history).
 > Last updated: 2026-06-26 · current `VERSION_HYBRID` 1.37.0.
+> F09 (Universal Ingest Brain) added 2026-06-26 — supersedes F06; see §9.
 
 ---
 
@@ -73,6 +74,7 @@ Each gap maps to exactly one slot in §0. None is a new app.
 | F06 | PDF → table | **DataSource type** | DocSensei/RO-ED-Lang/sheetsense tech | extractor client (port) |
 | F07 | Marketing connectors (GA/GSC) | **DataSource type** | connector framework | 2 API adapters + OAuth |
 | F08 | One-click text analysis | **agent tool** `analyze_text` | OpenRouter client | batch tool → derived column |
+| F09 | Universal Ingest Brain (any file → one brain) ★ | **DataSource pipeline** + brain | SpreadsheetClient, smart_upload, sheetsense, knowledge_proposer, brain_graph, OpenRouter vision | 6-stage ingest + ColumnProfile + unify-to-one-brain (absorbs F06) |
 
 **Two of eight touch the agent's tool list (F01, F08). Four are pure DataSource adapters
 (F04–F07). Two are presentation config (F02, F03).** That's the whole surface area.
@@ -152,7 +154,7 @@ from the DocSensei SharePoint connector.
   - 🟠 **Brittle parse** — site HTML varies; LLM-clean step + "pick table" UI.
 - **Flag:** `HYBRID_WEB_SCRAPE`.
 
-### F06 · PDF / statement → table  (DataSource type, **port existing**)
+### F06 · PDF / statement → table  ⟶ **ABSORBED INTO F09 (see §3 last block + §9 design)**
 **Connects to:** tech we already own elsewhere — DocSensei vectorless PageIndex, RO-ED-Lang customs
 PDF pipeline, sheetsense ingestion. poppler + soffice already in the image (used by report_delivery).
 - **Where:** `routes/extract_pdf.py` + Studio **Add data → "Extract from PDF 📄"**. Wrap existing
@@ -179,6 +181,88 @@ PDF pipeline, sheetsense ingestion. poppler + soffice already in the image (used
 - **What can break:** 🟠 cost on large columns — batch + cap rows + cache by text hash, fail-soft.
   🟠 derived column must land in `staging` (agent-owned), never mutate the source.
 - **Flag:** `HYBRID_TEXT_TOOLS`.
+
+### F09 · Universal Ingest Brain — any dataset → one brain  ★★ flagship
+**Supersedes F06.** F06 was "PDF → table." F09 is the bigger idea the user actually wants: **drop in
+any file (Excel, CSV, PDF, Word, image), the platform understands its structure deeply, cleans it,
+and registers it into ONE org-level brain so the agent knows every dataset and how they relate** —
+Compas-style single shared brain, not per-source islands.
+
+**Design doc:** `docs/INGEST_BRAIN_DESIGN.md` (to be written). Summary below.
+
+**GPU-free by construction (we are OpenRouter-only, no local GPU):**
+| Input | Parser | Compute |
+|---|---|---|
+| Excel/CSV | `sheetsense` port + openpyxl (own engine) | pure CPU |
+| Text PDF | pdfplumber (text) + camelot (tables) | pure CPU |
+| Scanned PDF / image | **OpenRouter vision model** (already wired) | cloud, no GPU |
+| Word / PPT | python-docx / python-pptx | pure CPU |
+| catch-all (email/html) | Unstructured CPU-mode (optional) | CPU |
+Rule: born-digital → CPU lib (fast, free, deterministic). Only scanned/image → vision LLM.
+**Docling rejected as default** — its table/layout model is GPU-bound; keep only as optional CPU fallback flag.
+
+**The single brain (one org-level brain for ALL data):**
+```
+        ┌────────────────  ONE BRAIN (org-level)  ────────────────┐
+        │ SemanticTable     what each table is                    │
+        │ ColumnProfile     every column: meaning/unit/PII/role   │
+        │ MetricDefinition  candidate metrics                     │
+        │ brain_graph (AGE) cross-source joins + entity links     │
+        │ KnowledgeDoc      prose/glossary from PDF/Word          │
+        └─────────────────────────────────────────────────────────┘
+            ▲        ▲        ▲        ▲        ▲
+         Excel    PDF     Word    image    CSV   → every ingest REGISTERS here
+```
+Cross-source: brain learns `salesA.cust_id ↔ crmC.customer` across different files → proposes the join.
+Agent reads brain at query time → already knows every dataset, no re-scan. All proposals land
+`status=pending` (review gate stays). Today the brain fires only on 👎 — F09 adds an **ingest-time
+trigger**.
+
+**Deep sheet + column capture (the user's explicit requirement — every column understood):**
+- region-detect: N tables in one sheet, find true boundaries (sheetsense)
+- find the REAL header row (skip title/blank rows)
+- **merged cells** → unmerge + forward-fill value into each covered cell
+- **row-merge / 2-row hierarchical headers** → flatten to `parent · child`
+- gap rows/cols → drop or split into separate tables
+- per column → `ColumnProfile` row (NEW table): `name, normalized_name, dtype, unit, null%,
+  cardinality, sample_values[5], pii_flag, semantic_role(id|date|measure|category), synonyms[],
+  maps_to(brain entity), source_file, sheet, col_index`
+
+**6-stage pipeline (behind `create_data_source_from_file`):**
+```
+1 DETECT      sniff type → route to parser
+2 EXTRACT     Excel→sheetsense(regions+merge+header)  PDF→pdfplumber/camelot  scan→vision  Word→docx
+3 PROFILE     ColumnProfile per column (dtype/unit/PII/role/samples)
+4 UNDERSTAND  LLM names each table+column meaning + synonyms (OpenRouter)
+5 UNIFY       fuzzy-match columns across ALL sources → propose joins into brain_graph
+6 STORE+LEARN tables→ConnectionTable(queryable); prose→KnowledgeDoc; register SemanticTable+
+              ColumnProfile+MetricDefinition+graph edges into the ONE brain (pending, review-gated)
+```
+Storage = existing model chain (DataSource→Connection→ConnectionTable→DataSourceTable). No new store.
+
+**What connects:** reuses `SpreadsheetClient`, `smart_upload` (header/glossary/merge already there),
+`knowledge_proposer`, `distiller`, `brain_graph` (AGE), DuckDB, OpenRouter client. ~70% exists.
+
+**What can break:**
+- 🔴 **Silent reshape of user data** — wrong table-boundary / header guess corrupts meaning. MUST show
+  a **preview before commit**: "Read as N tables, header=row 3, merged col X filled down, dropped 2
+  blank rows — fix?" Never reshape silently.
+- 🔴 **Greenlet expiry** — `create_data_source_from_file` commits internally → expires ORM objects.
+  Capture org_id/user_id/file ids as strings up-front; re-query fresh (known landmine).
+- 🟠 **Heavy parsers in request path** — vision LLM / camelot are slow. Run in a worker, not the HTTP
+  request; stream progress.
+- 🟠 **Cross-source join false-positive** — fuzzy match links wrong columns. Propose-only + review gate.
+- 🟠 **Vision cost** — only route scanned/image pages to the LLM; born-digital never hits it. Cache by
+  content hash (already have `file_content_hash`).
+- 🟠 **New tables** (`ColumnProfile`) — migration off true single head.
+- **Flag:** `HYBRID_INGEST_BRAIN` (default OFF). PDF/Word sub-path can reuse the absorbed
+  `HYBRID_PDF_EXTRACT` name if cleaner.
+
+**Phases (P1 has zero new heavy deps):**
+- **P1** sheetsense port → messy Excel (regions, merged cells, hierarchical headers) + `ColumnProfile`
+  table + preview-before-commit. Pure CPU, engine already owned.
+- **P2** PDF/Word/image ingest via pdfplumber + camelot + OpenRouter vision (no GPU).
+- **P3** unify into the ONE org brain + auto-learn-on-ingest trigger + cross-source join proposals.
 
 ---
 
@@ -217,6 +301,11 @@ These are the integrations that make the 8 cohere into one product. Do them once
 | Two writers to one artifact | F03 | 🟠 med | disjoint fields (data vs overlay), last-writer scoped |
 | Playwright contention | F05 vs PNG render | 🟠 med | shared chromium, bound concurrency |
 | Image storage bloat | F04 datasets | 🟢 low | lazy fetch to volume, don't bake |
+| Silent reshape of user data | F09 ingest | 🔴 high | preview-before-commit; never reshape silently |
+| Greenlet ORM expiry on ingest | F09 | 🔴 high | capture ids as strings, re-query fresh (known landmine) |
+| Vision/camelot in request path | F09 | 🟠 med | run in worker, stream progress; cache by content hash |
+| Cross-source join false-positive | F09 unify | 🟠 med | propose-only + review gate |
+| GPU dependency creep | F09 parsers | 🟠 med | CPU libs default; vision via OpenRouter; Docling optional-only |
 
 **Standing deploy landmines (from v1.37):**
 - Stack runs ONLY on `docker-compose.build.yaml` (plain compose = different project = empty DB).
@@ -240,11 +329,15 @@ PHASE R2 — the headline
         └─ depends on R1's config object; reuses create_data/create_artifact
 
 PHASE R3 — ingest breadth  (each independent, parallelizable)
-  F06 PDF extract (port — cheapest, big perceived value)
+  F09 Universal Ingest Brain  ★ absorbs F06 — build in P1→P3
+        P1 sheetsense Excel (regions/merge/hier-header) + ColumnProfile + preview  (CPU, no new deps)
+        P2 PDF/Word/image (pdfplumber+camelot+OpenRouter vision, GPU-free)
+        P3 unify→ONE brain + auto-learn-on-ingest + cross-source joins
   F05 web scrape  (security-gated: SSRF first)
   F07 GA/GSC      (OAuth)
   F04 public datasets (Explore page)
         └─ all funnel through §4.1 unified Add-data surface
+  (F06 standalone DROPPED — folded into F09)
 
 PHASE R4 — analysis surface
   F08 analyze_text (agent tool + dataset toolbar)

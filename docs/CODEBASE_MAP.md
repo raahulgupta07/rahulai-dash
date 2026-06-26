@@ -2,7 +2,8 @@
 
 > **Expert primer. Read this instead of scanning the tree.** Load-bearing 20% only: entry points,
 > extension patterns, route mounts, top landmines. Auto-loaded via `@docs/CODEBASE_MAP.md` in CLAUDE.md.
-> Companion: `CLAUDE.md` (rules/current state), `DEVLOG.md` (dated history), `ROADMAP.md` (forward plan).
+> Companion: `CLAUDE.md` (rules/current state), `DEVLOG.md` (dated history), `ROADMAP.md` (forward plan),
+> `docs/INGEST_BRAIN_DESIGN.md` (F09 universal-ingest design).
 > **Keep current:** when a ship changes a load-bearing path/pattern, update this file (same habit as DEVLOG bump).
 > Last verified: 2026-06-26 · `VERSION_HYBRID` 1.37.0 · mig head `agentconn1`.
 
