@@ -417,13 +417,32 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
 **Current state (2026-06-26):** image `cityagent-analytics:dev` on `:3007`, branch `main`,
-mig head **`agentchan1`**, `VERSION_HYBRID`=**1.24.0** (BAKED + live, healthy, users=2). v1.22
+mig head **`agentchan1`**, `VERSION_HYBRID`=**1.27.0** (BAKED + live, healthy, users=2). v1.22
 = full warm-theme sweep (every page + 148 comps). **v1.23.0 BAKED** = Parquet result storage +
 interactive query endpoint (flag `HYBRID_PARQUET_RESULTS` **default ON**) — large step results
 (≥`HYBRID_PARQUET_MIN_ROWS`=2000 rows) offload to compressed Parquet on `ca_uploads`; dashboards
 push filter/sort/agg to DuckDB via `POST /steps/{id}/query` (allow-listed, no raw SQL). See
 `docs/parquet-results.md`. `scripts/safe-upgrade.sh` = guarded bake (backup DB+uploads, health-gate,
 auto-rollback).
+
+**v1.25–1.27 (BAKED + live):**
+- **v1.25.0 plain-language "What's new":** `CHANGELOG_HYBRID.md` IS the user-facing popover source,
+  so it must read plain. Parser `backend/app/services/changelog.py` now splits bullets — **top-level
+  `- `** → `features` (user-facing, shown in `WhatsNew.vue` popover, render plain, NO markdown/paths/
+  jargon), **indented `  - `** → `details` (technical, hidden from popover, collapsed `<details>`
+  toggle on `/changelog` page only). Recent entries rewritten plain. RULE going forward: write
+  top-level bullets as plain user copy, push file paths/flags/internals to indented detail bullets.
+- **v1.26.0 Channels global-vs-custom:** per-platform mode radio in `StudioChannels.vue` ("Use
+  organization default" vs "Custom for this agent") mirroring the Email tab. Mode DERIVED from data
+  (per-studio channel row = custom; none = org default) + local override to flip before a row exists;
+  global branch shows org-default note + "Remove custom" revert. Mode-aware status chip. Replaced the
+  old "🔒 Locked" banner with a data-scope note. **NO backend change** — reuses NULL studio_id → org
+  fallback.
+- **v1.27.0 equal card buttons:** Decks (`pages/presentations/index.vue`) labels shortened
+  (Open & generate→Generate, Open in chat→Chat) + `whitespace-nowrap`+`box-border`+`min-w-0` so the
+  `grid-cols-2` buttons stay flat + equal. Dashboards/Home (`components/home/RecentReportCard.vue`)
+  button CSS `flex:1 1 0; width:0; box-sizing:border-box; white-space:nowrap` — bordered ghost +
+  borderless primary now render identical width.
 
 **v1.24.0 Per-agent Channels + Email/SMTP + Docker build speedups (BAKED + live):**
 - **Channels** + **Email / SMTP** are now their OWN left-rail tabs in the Studio MANAGE group
