@@ -46,7 +46,16 @@ _DATE_RE = re.compile(r"\((?P<date>\d{4}-\d{2}-\d{2})\)\s*$")
 def parse_changelog(md_text: str) -> list[dict]:
     """Parse changelog markdown → list of entries in file order (newest first).
 
-    Each entry: ``{"version","title","date","features":[...]}``.
+    Each entry: ``{"version","title","date","features":[...],"details":[...]}``.
+
+    Bullet convention:
+      * **Top-level** bullets (``- ``, no leading indent) are *user-facing* and
+        land in ``features`` — keep these plain-language for the "What's new"
+        popover.
+      * **Indented** bullets (any leading whitespace before ``- ``/``* ``) are
+        *technical detail* and land in ``details`` — shown only on the full
+        ``/changelog`` page, hidden from the popover.
+
     Malformed entries are skipped; never raises.
     """
     entries: list[dict] = []
@@ -79,14 +88,18 @@ def parse_changelog(md_text: str) -> list[dict]:
                     "title": title,
                     "date": date,
                     "features": [],
+                    "details": [],
                 }
                 continue
 
+            if current is None:
+                continue
+            indented = line[:1].isspace()  # leading whitespace = technical detail
             stripped = line.lstrip()
-            if current is not None and stripped.startswith("- "):
-                feat = stripped[2:].strip()
-                if feat:
-                    current["features"].append(feat)
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                text = stripped[2:].strip()
+                if text:
+                    (current["details"] if indented else current["features"]).append(text)
 
         if current is not None:
             entries.append(current)

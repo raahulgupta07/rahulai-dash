@@ -1,39 +1,59 @@
 # What's new — CityAgent Analytics
 
 Hybrid feature changelog (our additions on top of the bagofwords/Dash base). Newest first.
-Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` followed by `-` feature bullets.
+Format per entry: `## v<semver> — <title>  (<YYYY-MM-DD>)` then bullets.
+Bullet rules (this is the user-facing "What's new" feed):
+  - **Top-level** `- ` bullets are USER-FACING — plain language, no file paths / jargon / markdown.
+    These show in the in-app "What's new" popover.
+  - **Indented** `  - ` bullets are TECHNICAL detail — file paths, flags, internals.
+    Hidden from the popover; shown collapsed on the full /changelog page only.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
-## v1.24.0 — Per-agent Channels (two-pane) + per-agent Email/SMTP + Dockerfile build speedups  (2026-06-26)
-- **Per-agent Channels tab** (`components/studio/StudioChannels.vue`): the agent's channels move out of "Access & Channels" into their own left-rail **Channels** tab, redesigned as the org-style **two-pane picker** (platform list + detail pane) instead of a flat card. Same config method (reuses the Slack/Teams/WhatsApp/AI-Mailbox modals + Telegram/MCP) — only re-laid-out. Status dots, set-up/reconfigure/enable/disable/delete per platform. Scoped to this agent's data.
-- **Per-agent Email / SMTP tab** (NEW, `components/studio/StudioEmail.vue`): an agent can send its outbound mail (shares, scheduled results, channel/mailbox replies) from the **global default** OR its **own custom SMTP**. Mode radio; custom fields mirror org SMTP (host/port/security/user/pass/from/validate-certs) + connection test. Stored in `Studio.config['smtp']` (Fernet password), no migration.
-  - Backend: `email_client_resolver` gains a **per-agent SMTP tier** (`get_studio_smtp` + `studio_smtp` precedence in `choose_outbound`; `resolve_outbound(..., studio_id=)`) — agent custom SMTP wins over org/global. Routes `GET/PUT/POST-test /api/studios/{id}/smtp` (flag `HYBRID_AGENT_CHANNELS`, owner/editor). Wired `studio_id` through `notification_service` (dispatch + send_custom_email + _resolved_send), report-share (`report.py`), and channel replies (`email_send_service`). NULL studio / global mode = unchanged behavior.
-  - Rail split: **Access & Members** (who/model/members/connections) + **Channels** + **Email / SMTP**.
-- **Dockerfile build speedups**: dropped non-deterministic `apt-get upgrade -y` from the backend + frontend builder stages (pin to base image, cache-stable); added BuildKit cache mounts for the Vite/Nuxt transform caches on `yarn generate` → faster repeat FE rebuilds. Runtime `base` stage keeps its security upgrade.
+## v1.26.0 — Channels: use the org default or a custom connection  (2026-06-26)
+- For every channel (Slack, Teams, WhatsApp, AI Mailbox, Telegram, MCP) you can now choose: use the organization's shared connection, or set up a custom one just for this agent — same choice you already have for Email.
+- Channels default to the organization's connection, so an agent works out of the box with nothing to configure. Switch to "Custom for this agent" only when you want its own app, bot, or number.
+- Removed the confusing "locked" message — replaced with a clear note that, whichever connection you pick, every channel still answers only from this agent's data.
+  - `components/studio/StudioChannels.vue`: per-platform mode radio (global vs custom). Mode derived from data — a per-studio channel row = custom, none = org default; local override lets the user flip to custom before a row exists. Global branch shows an org-default note + "Remove custom" revert; custom branch keeps Set up/Reconfigure/Enable/Disable/Delete. Status chip is mode-aware (Org default / Connected / Not connected). No backend change — relies on existing NULL studio_id → org fallback.
+- The "What's new" notes are now written in plain language instead of developer shorthand, so anyone can understand what changed.
+- Curious about the deep technical details of a release? They're tucked under a "Technical details" toggle on the full What's new page.
+  - Changelog parser (`backend/app/services/changelog.py`) splits bullets: top-level `- ` → `features` (user-facing, shown in popover), indented `  - ` → `details` (technical, hidden from popover).
+  - Full page `pages/changelog/index.vue` renders `details` under a collapsed `<details>` toggle. Popover `WhatsNew.vue` unchanged (already renders `features` only). Recent entries (v1.20–1.24) rewritten plain + technical detail moved to indented bullets.
 
-## v1.23.0 — Parquet result storage + interactive query endpoint + per-agent channels  (2026-06-26)
-- **Parquet result storage** (`backend/app/services/parquet_store.py`): large step results (≥`HYBRID_PARQUET_MIN_ROWS`=2000 rows) offload to compressed Parquet on the `ca_uploads` volume instead of inline JSON in Postgres — smaller DB, faster dashboards. Transparent hydrate on read (CSV/PDF/agent paths uncompromised). Flag `HYBRID_PARQUET_RESULTS` **default ON**. Crash-safe, fail-soft, GC via daily purge sweep. Docs: `docs/parquet-results.md`.
-- **Interactive query endpoint** `POST /steps/{id}/query`: declarative allow-listed DuckDB pushdown (filter/group/agg/sort/page) over the Parquet — returns only the slice + true total_rows. No raw SQL; cols/ops allow-listed; limit cap 5000. Frontend `useStepQuery` + dashboard routes cross-filter/sort/page through it for `source:"parquet"` steps; inline steps keep client-side path.
-- **Per-agent channels** (flag `HYBRID_AGENT_CHANNELS` default ON): each agent/studio configures its own Slack/Teams/WhatsApp/AI Mailbox/MCP/Telegram (Studio → Access & Channels), scoped to that agent's pinned data. Backend per-studio CRUD for all types (upsert, Fernet creds, audience). **Inbound routing** (phase 2): Slack/Teams/WhatsApp webhooks bind the report to the matched channel's `studio_id` → ReportService auto-scopes to that studio's sources (data isolation). Per-agent rows preferred over org-wide. NULL studio_id = unchanged org behavior.
-- **`scripts/safe-upgrade.sh`** (NEW): guarded bake — rollback-tag image, backup DB+uploads volume together, health-gate, auto-rollback on failure.
+## v1.24.0 — Connect each agent to its own channels and email  (2026-06-26)
+- Each agent now has its own Channels tab. Connect Slack, Teams, WhatsApp, an AI Mailbox, Telegram, or MCP to a single agent — pick a platform on the left, set it up on the right. Turn any channel on or off without touching your other agents.
+- Each agent now has its own Email / SMTP tab. An agent can send its emails (shared results, scheduled reports, replies) using the company default, or you can give it its own mail server. A one-click "send test" confirms it works before you rely on it.
+- The agent's left menu is now split into Access & Members, Channels, and Email / SMTP, so settings are easier to find.
+- App updates ship faster — rebuilds are quicker behind the scenes.
+  - Channels UI: `components/studio/StudioChannels.vue` — org-style two-pane picker (platform list + detail pane), reuses the Slack/Teams/WhatsApp/AI-Mailbox modals + Telegram/MCP. Per-platform status dot + set-up/reconfigure/enable/disable/delete, scoped to the studio.
+  - Email UI: `components/studio/StudioEmail.vue` — mode radio (global default vs custom), custom fields mirror org SMTP (host/port/security/user/pass/from/validate-certs) + test. Stored in `Studio.config['smtp']` (Fernet password), no migration.
+  - Backend: `email_client_resolver` per-agent SMTP tier (`get_studio_smtp` + `studio_smtp` precedence in `choose_outbound`; `resolve_outbound(..., studio_id=)`) wins over org/global. Routes `GET/PUT/POST-test /api/studios/{id}/smtp` (flag `HYBRID_AGENT_CHANNELS`, owner/editor). `studio_id` threaded through `notification_service`, `report.py` share, `email_send_service` replies. NULL studio / global mode = unchanged.
+  - Dockerfile: dropped non-deterministic `apt-get upgrade -y` from builder stages (cache-stable); BuildKit cache mounts for Vite/Nuxt transform caches on `yarn generate`. Runtime `base` stage keeps its security upgrade.
 
-## v1.22.0 — Full app warm-theme sweep (every remaining page/component)  (2026-06-26)
-- Completed the warm-palette rollout across the ENTIRE app: 32 remaining pages + 148 components + 3 layouts migrated. Zero clay residue anywhere.
-- Covers report detail/chat workspace, agents (all tabs), monitoring console, evals runs, templates/queries detail, onboarding, auth pages, excel, files, changelog, public share/embed (`c/`, `r/`).
-- Token-only migration: clay→coral (`#C2541E`/`#A8330F`), borders `#E9E0D3`, surfaces `#F4EEE5`, headers → Spectral 32px. **Zero icons/logos/logic changed.**
+## v1.23.0 — Faster dashboards on big results + agents answer in chat apps  (2026-06-26)
+- Big result tables now load faster and take up far less storage, so dashboards built on large queries open quicker.
+- Filter, sort, and page through large results live — only the rows you're looking at are fetched, even on millions of rows.
+- Agents can now answer in Slack, Teams, WhatsApp, an AI Mailbox, Telegram, or MCP. A question coming from a channel is automatically answered using only that agent's data.
+  - Parquet result storage: `backend/app/services/parquet_store.py` — results ≥`HYBRID_PARQUET_MIN_ROWS`=2000 rows offload to compressed Parquet on the `ca_uploads` volume instead of inline JSON in Postgres. Transparent hydrate on read; flag `HYBRID_PARQUET_RESULTS` default ON; crash-safe, fail-soft, daily purge GC. Docs: `docs/parquet-results.md`.
+  - Interactive query endpoint `POST /steps/{id}/query`: allow-listed DuckDB pushdown (filter/group/agg/sort/page), returns slice + true total_rows, no raw SQL, limit cap 5000. Frontend `useStepQuery` + dashboard routes for `source:"parquet"` steps; inline steps keep client-side path.
+  - Per-agent channels (flag `HYBRID_AGENT_CHANNELS` default ON): per-studio CRUD for all types (upsert, Fernet creds, audience). Inbound webhooks bind the report to the matched channel's `studio_id` → ReportService auto-scopes to that studio's sources. NULL studio_id = unchanged.
+  - `scripts/safe-upgrade.sh` (NEW): guarded bake — rollback-tag image, backup DB+uploads together, health-gate, auto-rollback on failure.
 
-## v1.21.0 — Settings warm-theme restyle (all 11 tabs)  (2026-06-25)
-- Migrated all Settings tabs to the warm design palette: Members/Access, LLM/Models, AI Settings, General, Channels/Integrations, Folder Sync, Audit, Identity Provider (SSO/SCIM/LDAP), SMTP, Feature Flags, Pack Analytics.
-- Recolored the settings layout (`layouts/settings.vue`) + settings-imported components (`sync/FolderSyncPanel.vue`, Email/WhatsApp/Teams/Slack integration modals).
-- Token-only migration: clay→coral (`#C2541E`/`#A8330F`), borders `#E9E0D3`, surfaces `#F4EEE5`, headers → Spectral 32px. **Zero icons/logos changed, zero functionality touched** (per request).
+## v1.22.0 — New look, now everywhere  (2026-06-26)
+- The new warm look is now applied across the whole app — reports, chat, agents, monitoring, evals, templates, onboarding, sign-in, files, and shared/embedded pages all match.
+- A visual refresh only — nothing about how the app works changed.
+  - Completed the warm-palette rollout: 32 remaining pages + 148 components + 3 layouts. Token-only migration: clay→coral (`#C2541E`/`#A8330F`), borders `#E9E0D3`, surfaces `#F4EEE5`, headers → Spectral 32px. Zero icons/logos/logic changed.
 
-## v1.20.0 — Nav rail (no dropdowns) + Workspace/Build/Manage page restyle  (2026-06-25)
-- **Nav rail** — replaced the top-nav dropdowns (Workspace/Build/Manage/Settings) with a contextual **left rail** (`components/nav/AppRail.vue`). Top items now route to the group's first page; the rail shows ONLY that group's items (one group at a time). Nav model extracted to shared `composables/useAppNav.ts` (single source for TopNav + AppRail). Mounted in `layouts/default.vue` non-report branch; self-hides on Home / Agent Studios / detail pages that own a rail.
-- **Studio detail tab persists in URL** (`pages/studios/[id]/index.vue`): `?tab=` query — refresh keeps the sub-tab instead of resetting to Auto-pilot.
-- **Workspace** — Templates page (`pages/templates/index.vue`) restyled to `Workspace v2` design: Spectral header, segmented Org/Global/All, gradient icon-tile cards, coral "Use template".
-- **Build** (all 5: Knowledge, Instructions, Queries, Skills, Memory) — warm palette migration (clay→coral `#C2541E`/`#A8330F`, borders `#E9E0D3`, surfaces `#F4EEE5`), Spectral 32px headers.
-- **Manage** (Connectors, Evals, Workflows) — same warm migration + Spectral headers. (Monitoring deferred — own `layout: 'monitoring'` console.)
-- Restyle only; all data/logic/permissions/tabs unchanged. Remaining Workspace views (Reports/Dashboards/Presentations/Spreadsheets/Scheduled) + Settings + Monitoring console pending.
+## v1.21.0 — New look for Settings  (2026-06-25)
+- All Settings screens got the new warm look — Members, Models, AI Settings, General, Integrations, Folder Sync, Audit, Identity Provider, SMTP, Feature Flags, and Analytics.
+- A visual refresh only — every setting works exactly as before.
+  - Migrated `layouts/settings.vue` + settings-imported components (`sync/FolderSyncPanel.vue`, Email/WhatsApp/Teams/Slack modals). Token-only: clay→coral (`#C2541E`/`#A8330F`), borders `#E9E0D3`, surfaces `#F4EEE5`, Spectral 32px headers.
+
+## v1.20.0 — Simpler navigation + refreshed pages  (2026-06-25)
+- Navigation is simpler: the old top dropdowns are replaced by a left side menu that shows just the section you're in.
+- Open an agent and refresh — it now stays on the tab you were viewing instead of jumping back to the start.
+- Templates, Knowledge, Instructions, Queries, Skills, Memory, Connectors, Evals, and Workflows all got the new warm look.
+  - `components/nav/AppRail.vue` replaces top-nav dropdowns; nav model in shared `composables/useAppNav.ts` (TopNav + AppRail). Mounted in `layouts/default.vue` non-report branch; self-hides on pages that own a rail.
+  - Studio detail `?tab=` query persists the sub-tab on refresh. Templates restyled to Workspace v2. Build/Manage warm migration + Spectral headers. (Monitoring console deferred.) Restyle only; data/logic/permissions unchanged.
 
 ## v1.19.0 — Studio detail retheme + Open/refresh crash fix (bake)  (2026-06-25)
 - Rethemed the studio detail/workspace page (`pages/studios/[id]/index.vue`) to the warm design system: cream bg + Hanken body, coral accents (`#C2541E`/`#A8330F`), Spectral serif headings, warm borders (`#E9E0D3`).

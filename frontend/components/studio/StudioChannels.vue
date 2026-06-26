@@ -14,8 +14,8 @@
         <!-- TWO-PANE: platform list (left) + detail (right) -->
         <div v-else class="rounded-2xl border border-[#E9E0D3] bg-white p-4">
             <div class="text-[11px] text-[#8A4527] bg-[#FBF4EF] border border-[#f0ddd0] rounded-lg px-3 py-2 mb-4 flex items-start gap-1.5">
-                <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>Locked to this agent's pinned sources — never the whole org. 🔒</span>
+                <UIcon name="i-heroicons-shield-check" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>Every channel answers only from <span class="font-medium">this agent's</span> data — whichever connection you pick.</span>
             </div>
 
             <div class="flex flex-col md:flex-row gap-4">
@@ -70,29 +70,69 @@
                             </div>
                             <span
                                 class="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0"
-                                :class="isChannelOn(selected) ? 'bg-[#E7F2EC] text-[#2f7a52]' : 'bg-[#F3F0E9] text-[#9a958c]'"
+                                :class="statusClass(selected)"
                             >
-                                {{ isChannelOn(selected) ? '● Connected' : '○ Not connected' }}
+                                {{ statusLabel(selected) }}
                             </span>
                         </div>
                         <p class="text-[12px] text-[#6b6b6b] mb-4">{{ selectedMeta?.blurb }}</p>
 
-                        <div v-if="channelFor(selected)" class="text-[11px] text-[#9a958c] mb-4 space-y-1">
-                            <div>Audience: <span class="text-[#1f2328] font-medium">{{ audienceLabel(channelFor(selected)!.audience) }}</span></div>
+                        <!-- connection mode: org default vs custom -->
+                        <div class="space-y-2 mb-4">
+                            <label
+                                v-for="opt in connModeOptions"
+                                :key="opt.value"
+                                class="flex items-start gap-2 rounded-xl border p-2.5 transition-colors"
+                                :class="[
+                                    modeFor(selected) === opt.value ? 'border-[#E8C9B5] bg-[#F6EFEA]' : 'border-[#E9E0D3] bg-white',
+                                    canEdit ? 'cursor-pointer hover:border-[#dcd9cf]' : 'opacity-70 cursor-default',
+                                ]"
+                            >
+                                <input
+                                    type="radio"
+                                    :checked="modeFor(selected) === opt.value"
+                                    :disabled="!canEdit"
+                                    class="mt-0.5 text-[#C2541E] focus:ring-[#C2541E]"
+                                    @change="setMode(selected, opt.value)"
+                                />
+                                <span>
+                                    <span class="block text-xs font-medium text-[#1f2328]">{{ opt.label }}</span>
+                                    <span class="block text-[11px] text-[#9a958c]">{{ opt.value === 'custom' ? opt.hint.replace('{name}', selectedMeta?.name || 'this platform') : opt.hint }}</span>
+                                </span>
+                            </label>
                         </div>
 
-                        <div v-if="canEdit" class="flex flex-wrap items-center gap-2">
-                            <UButton color="orange" size="xs" @click="openChannelModal(selected)">
-                                {{ channelFor(selected) ? 'Reconfigure' : 'Set up' }}
-                            </UButton>
-                            <template v-if="channelFor(selected)">
-                                <UButton color="gray" variant="outline" size="xs" @click="toggleChannel(channelFor(selected)!)">
-                                    {{ channelFor(selected)!.is_active ? 'Disable' : 'Enable' }}
+                        <!-- GLOBAL / org default -->
+                        <template v-if="modeFor(selected) === 'global'">
+                            <div class="text-[11px] text-[#6b6b6b] rounded-xl border border-[#F0EEE6] bg-[#F9F6F0] px-3 py-2.5">
+                                Reaches this agent through the organization's shared {{ selectedMeta?.name }}, set up in
+                                <span class="font-medium text-[#1f2328]">Settings → Integrations</span>. Nothing to configure here.
+                            </div>
+                            <div v-if="canEdit && channelFor(selected)" class="mt-3 flex items-center gap-2">
+                                <span class="text-[11px] text-[#9a958c]">A custom connection exists — remove it to fall back to the org default.</span>
+                                <UButton color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteChannel(channelFor(selected)!)">Remove custom</UButton>
+                            </div>
+                        </template>
+
+                        <!-- CUSTOM / agent-owned -->
+                        <template v-else>
+                            <div v-if="channelFor(selected)" class="text-[11px] text-[#9a958c] mb-4 space-y-1">
+                                <div>Audience: <span class="text-[#1f2328] font-medium">{{ audienceLabel(channelFor(selected)!.audience) }}</span></div>
+                            </div>
+
+                            <div v-if="canEdit" class="flex flex-wrap items-center gap-2">
+                                <UButton color="orange" size="xs" @click="openChannelModal(selected)">
+                                    {{ channelFor(selected) ? 'Reconfigure' : 'Set up' }}
                                 </UButton>
-                                <UButton color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteChannel(channelFor(selected)!)">Delete</UButton>
-                            </template>
-                        </div>
-                        <p v-else class="text-[11px] text-[#9a958c]">You need editor access to configure channels.</p>
+                                <template v-if="channelFor(selected)">
+                                    <UButton color="gray" variant="outline" size="xs" @click="toggleChannel(channelFor(selected)!)">
+                                        {{ channelFor(selected)!.is_active ? 'Disable' : 'Enable' }}
+                                    </UButton>
+                                    <UButton color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteChannel(channelFor(selected)!)">Delete</UButton>
+                                </template>
+                            </div>
+                            <p v-else class="text-[11px] text-[#9a958c]">You need editor access to configure channels.</p>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -194,6 +234,29 @@ const selectedMeta = computed(() => channelCatalog.find(c => c.key === selected.
 const audienceLabel = (a: string) => a === 'anyone' ? 'Anyone' : 'Org members only'
 const channelFor = (key: string) => channels.value.find(c => c.platform_type === key) || null
 const isChannelOn = (key: string) => !!channelFor(key)?.is_active
+
+// Connection mode per platform: 'global' (org default) vs 'custom' (this agent's own).
+// Derived from data — a per-studio channel row = custom; none = org default.
+// A local override lets the user flip to 'custom' before any row exists.
+const connModeOptions = [
+    { value: 'global', label: 'Use organization default', hint: 'Reach this agent through the org-wide connection. No setup needed.' },
+    { value: 'custom', label: 'Custom for this agent', hint: 'Connect this agent\'s own {name}.' },
+] as const
+const modeOverride = ref<Record<string, 'global' | 'custom'>>({})
+const modeFor = (key: string): 'global' | 'custom' =>
+    modeOverride.value[key] ?? (channelFor(key) ? 'custom' : 'global')
+const setMode = (key: string, m: 'global' | 'custom') => {
+    modeOverride.value = { ...modeOverride.value, [key]: m }
+}
+
+const statusLabel = (key: string) => {
+    if (modeFor(key) === 'global') return '○ Org default'
+    return isChannelOn(key) ? '● Connected' : '○ Not connected'
+}
+const statusClass = (key: string) => {
+    if (modeFor(key) === 'custom' && isChannelOn(key)) return 'bg-[#E7F2EC] text-[#2f7a52]'
+    return 'bg-[#F3F0E9] text-[#9a958c]'
+}
 
 // modals
 const showSlack = ref(false)
@@ -304,7 +367,8 @@ const deleteChannel = async (c: Channel) => {
     try {
         const { error } = await useMyFetch(`/studios/${props.studioId}/channels/${c.id}`, { method: 'DELETE' })
         if (error?.value) throw error.value
-        toast.add({ title: 'Channel deleted', color: 'green', icon: 'i-heroicons-check-circle' })
+        setMode(c.platform_type, 'global')  // reverted to org default
+        toast.add({ title: 'Channel removed — using org default', color: 'green', icon: 'i-heroicons-check-circle' })
         await fetchChannels()
     } catch (e: any) {
         console.error('Failed to delete channel:', e)

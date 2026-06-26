@@ -56,6 +56,21 @@
               <span>{{ f }}</span>
             </li>
           </ul>
+
+          <!-- Technical details (collapsed) -->
+          <details v-if="e.details && e.details.length" class="mt-2.5 group">
+            <summary class="text-[11px] font-medium text-[#9a958c] hover:text-[#6b6b6b] cursor-pointer select-none list-none">
+              <span class="group-open:hidden">Technical details ({{ e.details.length }})</span>
+              <span class="hidden group-open:inline">Hide technical details</span>
+            </summary>
+            <ul class="mt-1.5 space-y-1.5 border-l border-[#E9E0D3] pl-3">
+              <li
+                v-for="(d, di) in e.details"
+                :key="di"
+                class="text-[12px] text-[#6b6b6b] leading-snug font-mono break-words"
+              >{{ d }}</li>
+            </ul>
+          </details>
         </div>
       </div>
 
