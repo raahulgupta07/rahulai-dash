@@ -294,6 +294,19 @@ Any studio can email a **structured result** (not the raw agent chat) on a cron 
 - **Flags** — `HYBRID_AGENT_REPORTS` (Reports tab) + `HYBRID_RICH_REPORT_EMAIL` (rich-render engine; OFF = legacy raw path). Both default OFF.
 - **Note** — dashboard/artifact rendering needs the image's headless chromium (Playwright) + `soffice`/`pdftoppm`; transient Docker-DNS SMTP failures are retried ×3.
 
+### One-click artifacts — Dashboard / Slides / Excel from a report's charts
+
+When a report already has charts, its right-panel **Dashboard**, **Slides** and **Excel** views turn their empty states into one-click builders (no chatting):
+
+- **Generate dashboard** — builds a real interactive **page** artifact (KPI cards + responsive chart grid); rendered by `ArtifactFrame`.
+- **Generate slide deck** — builds a real **slides** artifact: a python-pptx deck with native charts + page previews, **exportable to `.pptx`** (replaces the lightweight client-side placeholder deck).
+- **Excel auto-fills** — one sheet per chart, populated with the real query grids.
+
+Each builder reuses the chat `create_artifact` pipeline over the report's existing visualizations (no new analysis), so the output is identical to one the agent would make in chat.
+
+- **Backend** — `routes/report_slides.py`: `POST /api/reports/{id}/dashboard/generate` (mode=`page`) + `…/slides/generate` (mode=`slides`) share `_generate_artifact(mode)`; read-only `GET /api/reports/{id}/workbook` returns the Excel sheets from each query's latest success step (`steps.data`, parquet-hydrated, capped 5000 rows × 50 sheets). Slides need headless `soffice`/`pdftoppm` for previews.
+- **Flag** — `HYBRID_ONECLICK_ARTIFACTS` (default OFF). Flag OFF = legacy empty states / client `SlidesPanel`.
+
 ### Releasing a feature (changelog)
 
 Shipped features are versioned in `VERSION_HYBRID` (hybrid semver, e.g. `1.2.0`) with a matching entry in `CHANGELOG_HYBRID.md` (`## v<semver> — <title>  (<YYYY-MM-DD>)` + `-` bullets, newest first). The app exposes this at `GET /api/changelog` and surfaces it as a **🔔 What's new** popover in the top bar (bell before the user profile) with an unseen badge per user. Bump `VERSION_HYBRID` and prepend a `CHANGELOG_HYBRID.md` entry whenever you ship — the bell updates automatically. Full feed at `/changelog`.
@@ -304,7 +317,7 @@ Shipped features are versioned in `VERSION_HYBRID` (hybrid semver, e.g. `1.2.0`)
 
 New features are flag-gated (`backend/app/settings/hybrid_flags.py`, env `HYBRID_*`, default OFF; dev `.env` turns them on). Per-org live overrides via **Settings → Feature Flags**.
 
-Key flags: `COLUMN_INTEL · AUTO_QUERIES · AUTO_EVALS · JOIN_GRAPH · DOC_KNOWLEDGE · STUDIOS · SEMANTIC_LAYER · METRICS_CATALOG · DOMAIN_PACKS · PACK_ROUTER · PACK_AUTOBIND · TEACH_BOX · SCOPE_GATE · FOLLOWUPS · AGENT_TEMPLATES · FOLDER_SYNC · AGENT_REPORTS · RICH_REPORT_EMAIL`. Intelligence Layer: `PROFILE_V2 · PROACTIVE_INSIGHTS · FORECAST · GOLDEN_QUERIES · CODE_ENRICH · VERIFIED_METRICS · SEMANTIC_SEARCH`. Env knob: `STUDIO_LEARN_DAEMON_ENABLED`.
+Key flags: `COLUMN_INTEL · AUTO_QUERIES · AUTO_EVALS · JOIN_GRAPH · DOC_KNOWLEDGE · STUDIOS · SEMANTIC_LAYER · METRICS_CATALOG · DOMAIN_PACKS · PACK_ROUTER · PACK_AUTOBIND · TEACH_BOX · SCOPE_GATE · FOLLOWUPS · AGENT_TEMPLATES · FOLDER_SYNC · AGENT_REPORTS · RICH_REPORT_EMAIL · ONECLICK_ARTIFACTS`. Intelligence Layer: `PROFILE_V2 · PROACTIVE_INSIGHTS · FORECAST · GOLDEN_QUERIES · CODE_ENRICH · VERIFIED_METRICS · SEMANTIC_SEARCH`. Env knob: `STUDIO_LEARN_DAEMON_ENABLED`.
 
 For stability, **Skills (heavy sandbox exec) / sub-agents / MCP are OFF by default**; the lightweight Domain-Pack path is the supported "skills" mechanism.
 

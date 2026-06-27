@@ -662,6 +662,39 @@ def build_schema_suggest_prompt(schema_text: str, focus: str) -> str:
     )
 
 
+def build_column_meaning_prompt(
+    table_name: str, description: str, columns: list[str]
+) -> str:
+    """Compose the strict-JSON per-column meaning prompt. Pure, deterministic.
+
+    Given a table (+ optional description) and a list of ``col (type)`` strings
+    whose meaning is still blank, ask the model for a ONE-sentence business
+    meaning per column — grounded ONLY in the column/table names, no invention.
+    Returns a single-line JSON object mapping each column name to its meaning.
+    """
+    desc_block = f"Table description: {description}\n" if description else ""
+    cols_block = "\n".join(f"- {c}" for c in columns)
+    return (
+        "You are a data catalog assistant. Below is one table and the columns "
+        "whose business meaning is still missing. For EACH listed column, write a "
+        "single concise sentence describing what it most likely means, grounded "
+        "ONLY in the column name and the table context. Do NOT invent columns — "
+        "describe ONLY the columns listed.\n\n"
+        f"Table: {table_name}\n"
+        f"{desc_block}"
+        "Columns needing a meaning:\n"
+        f"{cols_block}\n\n"
+        "Return ONLY a single-line JSON object, no prose, no markdown, mapping "
+        "each column name to its one-sentence meaning, e.g.\n"
+        '{"site": "Physical location/site where the reading was taken", '
+        '"reading_ts": "Timestamp at which the reading was recorded"}\n\n'
+        "Rules:\n"
+        "- Include a key for EVERY column listed above, and ONLY those columns.\n"
+        "- Each value = ONE concise sentence, no markdown.\n"
+        "- Output the JSON object ONLY."
+    )
+
+
 def _parse_suggest_proposal(text: str) -> dict:
     """Parse the schema-suggest JSON. Tolerant -> empty lists on junk."""
     parsed = _parse_proposal(text)  # reuse the tolerant brace-extraction parser
@@ -773,3 +806,119 @@ async def propose_knowledge_from_schema(
         except Exception:
             pass
         return {"semantics": [], "metrics": []}
+
+
+# ---------------------------------------------------------------------------
+# AI column-meaning generator: fill the blank SemanticColumn.meaning rows that
+# the GET /semantic seed leaves empty. Sibling of propose_knowledge_from_schema
+# above — works off the ALREADY-SEEDED semantic tables (not raw schema), so the
+# caller must have hit GET /semantic first. Approval-safe (status='pending', the
+# approved-only injection keeps it out of the agent until reviewed). NEVER
+# overwrites an approved or already-filled meaning. NEVER raises.
+# ---------------------------------------------------------------------------
+
+
+async def propose_column_meanings(
+    db, *, organization, data_source, model, llm_inference=None
+) -> dict:
+    """Fill blank ``SemanticColumn.meaning`` rows for a data source via the LLM.
+
+    Loads the org/ds semantic tables (with columns eager-loaded) in THIS async
+    session, asks the model — per table — for a one-sentence meaning of each
+    column whose meaning is still blank and whose status is not 'approved', and
+    sets ``meaning``+``status='pending'`` so it lands in the Review gate. Returns
+    {'columns': [<SemanticColumn.id>, ...]} of the columns that were filled.
+    NEVER raises — degrades to {'columns': []} on any failure.
+    """
+    out: dict = {"columns": []}
+    try:
+        org_id = str(getattr(organization, "id", None) or "")
+        ds_id = str(getattr(data_source, "id", None) or "")
+        if not org_id or not ds_id:
+            return out
+
+        from app.models.semantic_table import SemanticTable, SemanticColumn  # noqa: F401
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        # 1. Load the already-seeded semantic tables + their columns in-session.
+        #    No semantic tables yet -> nothing to fill (caller seeds via GET /semantic).
+        result = await db.execute(
+            select(SemanticTable)
+            .where(
+                SemanticTable.organization_id == org_id,
+                SemanticTable.data_source_id == ds_id,
+            )
+            .options(selectinload(SemanticTable.columns))
+        )
+        sem_tables = result.scalars().all()
+        if not sem_tables:
+            return out
+
+        # 2. Lazy default inference — same call shape the distiller/schema-suggest use.
+        infer = llm_inference
+        if infer is None:
+            def infer(p: str) -> str:  # noqa: E306 - tiny lazy default
+                from app.ai.llm.llm import LLM
+                from app.dependencies import async_session_maker
+
+                return LLM(model, usage_session_maker=async_session_maker).inference(p)
+
+        changed = False
+        for st in list(sem_tables)[:_MAX_SCHEMA_TABLES]:
+            # 3. Collect the columns still needing a meaning (blank + not approved).
+            blank_cols = [
+                c
+                for c in (getattr(st, "columns", None) or [])
+                if not _clean(getattr(c, "meaning", None))
+                and _clean(getattr(c, "status", None)) != "approved"
+            ][:_MAX_SCHEMA_COLS]
+            if not blank_cols:
+                continue
+
+            # 4. Build the per-table prompt: name, description, blank `col (type)` pairs.
+            by_name = {}
+            col_lines: list[str] = []
+            for c in blank_cols:
+                cname = _clean(getattr(c, "name", None))
+                if not cname:
+                    continue
+                by_name[cname] = c
+                ctype = _clean(getattr(c, "type", None))
+                col_lines.append(f"{cname} ({ctype})" if ctype else cname)
+            if not col_lines:
+                continue
+
+            prompt = build_column_meaning_prompt(
+                _clean(getattr(st, "table_name", None)),
+                _clean(getattr(st, "description", None)),
+                col_lines,
+            )
+
+            # 5/6. One-shot LLM + tolerant parse -> {col: meaning} dict.
+            raw = (infer(prompt) or "").strip()
+            parsed = _parse_proposal(raw)
+            if not isinstance(parsed, dict) or not parsed:
+                continue
+
+            # 7. Fill only the blank columns the model named, status -> 'pending'.
+            for cname, col in by_name.items():
+                meaning = _clean(parsed.get(cname))
+                if len(meaning) < _MIN_TEXT_LEN:
+                    continue
+                col.meaning = meaning
+                col.status = "pending"
+                out["columns"].append(str(col.id))
+                changed = True
+
+        # 8. Commit once, only if we actually filled something.
+        if changed:
+            await db.commit()
+        return out
+    except Exception as e:  # never raise to the caller
+        logger.warning("knowledge_proposer propose_column_meanings failed: %s", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return {"columns": []}

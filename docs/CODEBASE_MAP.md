@@ -5,7 +5,45 @@
 > Companion: `CLAUDE.md` (rules/current state), `DEVLOG.md` (dated history), `ROADMAP.md` (forward plan),
 > `docs/INGEST_BRAIN_DESIGN.md` (F09 universal-ingest design).
 > **Keep current:** when a ship changes a load-bearing path/pattern, update this file (same habit as DEVLOG bump).
-> Last verified: 2026-06-26 · `VERSION_HYBRID` 1.37.0 · mig head `agentconn1`.
+> Last verified: 2026-06-27 · `VERSION_HYBRID` 1.41.0 · mig head `agentconn1`.
+
+## v1.41.0 live training log (CLI) + AI column meanings + SOON cards
+- **Train log:** `ai/knowledge/train_orchestrator.py` keeps a capped timestamped `log[]` in `_train_status`. A
+  per-run `_RunLogHandler` (attached to loggers `app.ai.knowledge`/`app.ai.llm`/self, detached in `finally`)
+  captures the trainer + LLM-client lines (model/tokens/counts); plus explicit `_log()` markers (`▸ <stage>`,
+  default-model, done/failed). `_LOG_CAP=400` in-proc, `_LOG_PERSIST_CAP=200` mirrored to DB. New
+  `reset_status()` + `POST /studios/{id}/train/reset` (clears a stuck `running` status). FE
+  `pages/studios/[id]/index.vue`: inline panel under the "3 · TRAIN" card — Logs⇄Steps toggle, warm-dark
+  `#1b1813` terminal (mono, auto-scroll, level colors), %-bar, Reset/Retry, on-mount `loadTrainStatus()`.
+- **AI column meanings (closed a real gap):** NOTHING auto-wrote `SemanticColumn.meaning` before (manual PATCH
+  only — `knowledge.py:165` seeds `meaning=""`). New `propose_column_meanings(db,*,organization,data_source,
+  model,llm_inference=None)` + `build_column_meaning_prompt()` in `ai/brain/knowledge_proposer.py` (LLM → blank,
+  non-approved columns → `status='pending'`, never overwrites approved, returns `{"columns":[ids]}`, fail-soft).
+  Route `POST /api/knowledge/ai-suggest-columns/{ds}` (gated `SEMANTIC_LAYER`, placed BEFORE the `/{kind}/{id}`
+  catch-all). Folded into the Auto-train `semantic_metrics` stage (per-source, auto-approved like sem/met;
+  detail → `N col meanings`). FE `components/knowledge/SemanticTab.vue` "Suggest column meanings" button.
+- **Cards:** `reports/[id]/index.vue` Infographic + Insight Map → dimmed `SOON` non-clickable (Excel stays live).
+- LANDMINE: column meanings still need APPROVAL to inject (review gate). Standalone route writes pending;
+  Auto-train auto-approves. LANDMINE: a fresh/new org has ZERO `hybrid_overrides` → all Intelligence tabs show
+  "Enable…" placeholders; set `organization_settings.config.hybrid_overrides` + restart (boot loads them).
+
+## v1.38–1.39 one-click artifacts (HYBRID_ONECLICK_ARTIFACTS — was HYBRID_SLIDE_DECK)
+`routes/report_slides.py` turns the empty Dashboard/Slides/Excel right-panel views into one-click builders, no chat.
+- `POST /api/reports/{id}/dashboard/generate` (mode='page') + `…/slides/generate` (mode='slides') → shared
+  `_generate_artifact(mode)`: resolves org default LLM, runs `CreateArtifactTool` with a MINIMAL hand-built
+  `runtime_ctx` (db/report/user/org/model; context_hub/view/head_completion=None, all guarded), reuses the chat
+  pipeline (page→React dashboard; slides→python-pptx → `PptxCodeExecutor` → preview PNGs). Deletes its own
+  `status='failed'` artifact so it can't flip hasPageArtifact/hasSlidesArtifact with an empty frame.
+- `GET /api/reports/{id}/workbook` (read-only, NO LLM) → `{sheets:[{name,columns,rows}]}`, one per query's latest
+  success step (`steps.data` parquet-hydrated, cap 5000×50). The `/api/queries` LIST strips step rows, so the Excel
+  tab can't build client-side — this feeds it.
+- FE `pages/reports/[id]/index.vue`: dashboard CTA branch before page `ArtifactFrame` + slides CTA in the slides
+  fallback (both gated `oneClickEnabled` = `/organization/hybrid-flags` `HYBRID_ONECLICK_ARTIFACTS.effective`);
+  `excelSheets` prefers `serverSheets` (fetched `/workbook` on mount) over message-scraped `messageSheets`.
+  `hasPageArtifact`/`hasSlidesArtifact` key off `a.mode`. Flag OFF → legacy `SlidesPanel`/ArtifactFrame empties.
+LANDMINE: `pptx_executor.py` AST gate forbids `getattr` but the slides prompt's `style_chart_text` helper needs it →
+`PPTX_ALLOWED_BUILTINS={'getattr','hasattr'}`. LANDMINE: native pptx charts crash on empty categories → slides prompt
+DATA SAFETY rule (KPI/text slide for non-categorical vizs).
 
 ---
 

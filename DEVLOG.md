@@ -1060,3 +1060,118 @@ unit tests. Two new flags (default OFF, ON org 55278108): `HYBRID_AGENT_REPORTS`
   result table email + full dashboard email (258KB inline PNG + 352KB PDF) + workflow timeline email all
   `ok=True` to a real inbox; artifact preview pipeline proven (58KB PNG + 47KB pptx). 17 unit tests pass
   (`pytest tests/unit/test_report_delivery.py --noconftest`). Built by parallel subagents on disjoint files.
+
+## 2026-06-27 — One-click slide decks with real charts (v1.38.0, flag HYBRID_SLIDE_DECK)
+**Problem.** A report's Slides view fell back to the lightweight client-side `SlidesPanel` whenever no
+`mode='slides'` artifact existed (the common case — decks are only made by typing in chat). `SlidesPanel`
+has no chart renderer; it only shows a viz's `thumbnail_url` image, which report visualizations don't carry
+→ every chart slide rendered as the generic grey 3-bar placeholder. User wanted a REAL slide artifact.
+**Fix.** One-click generation of a real `Artifact(mode='slides')` from the report's existing charts, no chat:
+- **Backend** `routes/report_slides.py` (new, gated `flags.SLIDE_DECK`, 404 when off, mounted `/api`):
+  `POST /api/reports/{id}/slides/generate` loads the report's success visualizations, resolves the org default
+  LLM (`organization.get_default_llm_model`), instantiates `CreateArtifactTool` with a MINIMAL hand-built
+  `runtime_ctx` (db/report/user/org/model; context_hub/context_view/head_completion=None — all guarded in the
+  slides branch), drains `run_stream({mode:'slides', visualization_ids:[all]})`. Reuses the EXACT chat slides
+  pipeline (LLM python-pptx → `PptxCodeExecutor` → `PptxPreviewService` → preview PNGs + pptx_path). Re-queries
+  the artifact; on `status=='failed'` deletes it (so it can't flip `hasSlidesArtifact` true with an empty deck)
+  and 502s with `render_errors[0]`.
+- **Flag** `HYBRID_SLIDE_DECK` in `hybrid_flags.py` (@property + UPGRADE_FLAGS + snapshot, default OFF; ON org
+  55278108 via DB `hybrid_overrides`).
+- **FE** `pages/reports/[id]/index.vue`: the slides fallback (no artifact + has vizs) now shows a **Generate
+  slide deck** button when `slideDeckEnabled` (reads `/organization/hybrid-flags` for `HYBRID_SLIDE_DECK.effective`
+  on mount); click → `POST /reports/{id}/slides/generate` → `checkHasArtifacts()` refetch → `hasSlidesArtifact`
+  flips → the existing `ArtifactFrame` branch renders the real deck. Flag OFF → legacy `SlidesPanel` unchanged.
+**Two pre-existing slides-pipeline bugs fixed (also affected chat decks):**
+1. `pptx_executor.py` AST gate listed `getattr` in `FORBIDDEN_BUILTINS`, but the slides prompt's MANDATORY
+   `style_chart_text` helper is built on `getattr(chart,'category_axis',None)` → every styled deck failed
+   "Forbidden function call: 'getattr()'". Fix: `PPTX_ALLOWED_BUILTINS={'getattr','hasattr'}` (read-only
+   introspection; `setattr` deliberately NOT whitelisted) excepted in `visit_Call`.
+2. Decks hard-crashed "chart data contains no categories" when a KPI/single-value/empty-label viz was charted.
+   Fix: added a mandatory **DATA SAFETY** block to `_build_slides_prompt` (filter None/empty labels; if no
+   categories → KPI card / text slide, never `add_chart`; coerce values; per-chart try/except so one bad viz
+   can't sink the deck).
+**E2E verified live** (org 55278108, report 86bfef9a "Calls by Channel Type Distribution", 8 vizs): attempt 1
+failed on getattr → fixed; attempt 2 failed on empty categories → fixed; attempt 3 → `status=completed`,
+pptx at `uploads/pptx/<id>.pptx`, **5 slide preview PNGs**, thumbnail set. Failed test artifacts cleaned.
+Backend hot-deployed (docker cp + restart); FE via `scripts/fe-sync.sh` (button confirmed in `dist/_nuxt`).
+EPHEMERAL — not baked into the image yet.
+
+## 2026-06-27 — One-click Dashboard + Excel (v1.39.0, flag rename HYBRID_ONECLICK_ARTIFACTS)
+Extends the v1.38 one-click slide deck to the other two empty right-panel views the user flagged
+("No artifacts yet", "No spreadsheet yet").
+- **Flag rename** `HYBRID_SLIDE_DECK` → `HYBRID_ONECLICK_ARTIFACTS` (hybrid_flags.py property/UPGRADE_FLAGS/snapshot;
+  DB `hybrid_overrides` migrated for org 55278108). Gates all three CTAs.
+- **Backend** `routes/report_slides.py` generalized: shared `_generate_artifact(mode)` helper +
+  `POST /api/reports/{id}/dashboard/generate` (mode='page') beside `…/slides/generate` (mode='slides'). Both
+  run `CreateArtifactTool` over the report's vizs (minimal runtime_ctx), re-query + delete a `status='failed'`
+  artifact so it can't flip hasPageArtifact/hasSlidesArtifact with an empty frame. Per-mode prompt + label.
+- **Excel** = read-only, NO LLM: new `GET /api/reports/{id}/workbook` → `{sheets:[{name,columns,rows}]}`, one
+  sheet per query's latest SUCCESS step, `steps.data` parquet-hydrated + `_coerce_grid` (array-of-objects →
+  rows aligned to columns), capped 5000 rows × 50 sheets. The `/api/queries` LIST strips step row data
+  (`default_step.data == {}`), so the Excel tab could not be built client-side — this returns the real grids.
+- **FE** `pages/reports/[id]/index.vue`: dashboard CTA `<div>` branch BEFORE the page `ArtifactFrame` (gated
+  `oneClickEnabled && !hasPageArtifact && has vizs`), `generateDashboard()` mirrors `generateSlideDeck()`;
+  `serverSheets` ref fetched from `/workbook` on mount (`loadOneClickFlag().then(loadWorkbook)`), `excelSheets`
+  computed prefers `serverSheets` over the message-scraped `messageSheets`. Flag var `slideDeckEnabled` →
+  `oneClickEnabled`, env `HYBRID_ONECLICK_ARTIFACTS`.
+- **E2E LIVE** (org 55278108, report 86bfef9a, 8 vizs): `/workbook` → 4 sheets (real cols/rows);
+  `/dashboard/generate` → page artifact `status=completed` (10k code, no render errors); slides still good.
+  Backend hot-deployed (docker cp + restart); FE via `scripts/fe-sync.sh`. EPHEMERAL — not baked.
+
+## 2026-06-27 — v1.40.0 Cleaner chat + one warm canvas (cosmetic) + fresh-DB FK guard
+Cosmetic chat redesign on the report page (Claude/ChatGPT-style grammar) + a colour-consistency fix
++ one backend correctness fix. NO functional/agent-loop change. Hot-deployed to :3007 (FE via
+`yarn generate` + docker cp; backend via docker cp + restart). EPHEMERAL until baked.
+- **`pages/reports/[id]/index.vue` (P0–P5, cosmetic):** center surfaces `bg-[#F6F1EA]`→`#FAF8F3`;
+  `.cc-step` threaded tool rows (padding-inline-start 20px, `::before` connector rail `#E9E0D3`,
+  `::after` status dot, `--done` green `#3F7A4F` / `--err` amber `#C08A2D`); `awaitingClarify` computed
+  → "Waiting for your answer — run paused" chip replaces the perpetual `isPolling` spinner (followups
+  loader also gated `!awaitingClarify`); `nowTick` + `watch(isStreaming)` 1s interval + `liveElapsed(m)`
+  → `cc-shimmer` header + live `· Ns` timer (cleared `onUnmounted`); markdown `:deep(.markdown-content)`
+  13→15px / line-height 1.7 / color `#1f1d1a`, serif Spectral headings, `strong` 700, hairline tables
+  (`#FAF7F1` header) + `hr` `#E9E0D3`; empty-state eyebrow "New report · no messages yet".
+- **`components/tools/CreateDataTool.vue` (P1 garble fix):** header `flex-wrap min-w-0`; table-name
+  `join(', ')` → count chip `{N} table(s)` with `:title` full list + `DataSourceIcon flex-shrink-0`.
+  Kills the garbled vertical-text overflow in the tool row.
+- **`components/report/SplitScreenLayout.vue` (warm-canvas fix):** root `bg-white`→`bg-[#FAF8F3]`;
+  right Outputs pane `bg-white`→`bg-[#FAF8F3]`; inner rounded card `bg-[#f8f8f7]`→`bg-[#FAF8F3]` +
+  border `black/[0.08]`→`#E9E0D3`. Fixes the warm→cool-white jump when a report opens its dashboard/
+  answer dock (the "color changes when chat starts" report).
+- **`services/report_service.py` (fresh-DB FK guard):** `create_report` verifies `studio_id` exists in
+  the org (`Studio.id == studio_id AND organization_id AND deleted_at IS NULL`), else logs + nulls it.
+  Fixes `ForeignKeyViolationError fk_reports_studio_id_studios` on a fresh/wiped DB when the browser
+  still holds a stale localStorage studio id. Verified HTTP 200 with a bogus studio_id.
+- Rollback backups of all 4 changed files + the pre-copy container `dist` (69M) saved in the session
+  scratchpad (`rollback_phaseA/`). NOT yet baked — next step = durable image rebuild.
+
+## 2026-06-27 — v1.41.0 Live train log (CLI) + AI column meanings + SOON cards
+Three ships. All EPHEMERAL (docker cp + restart; baked via docker commit, NOT a Dockerfile build).
+- **Live training log (Option A):** `train_orchestrator.py` now keeps a capped timestamped `log[]` in the run
+  status. A per-run `logging.Handler` (`_RunLogHandler`) attached to loggers `app.ai.knowledge`/`app.ai.llm`/
+  self captures every line the trainer + LLM client already emit (model, counts, errors); plus explicit `_log`
+  calls: "Auto-train started", pinned-source count, "default analysis model: <id>", `▸ <stage>` markers,
+  and a done/failed summary. `_LOG_CAP=400` in-process, `_LOG_PERSIST_CAP=200` mirrored to
+  `Studio.config['_train_status']` (bounded JSON). New `reset_status()` + route `POST /studios/{id}/train/reset`
+  (clears a stuck `running` status — the prior 75%-frozen bug had no UI escape). FE `studios/[id]/index.vue`:
+  inline panel under the TRAIN card (`trainLog`/`trainStages`/`trainLogLines`), Logs⇄Steps toggle, warm-dark
+  `#1b1813` terminal (mono, auto-scroll via watch+nextTick, level colors blue/amber/red), %-bar, Reset/Retry,
+  on-mount `loadTrainStatus()`.
+- **AI column meanings (closes a real gap):** nothing in the product ever wrote `SemanticColumn.meaning`
+  (manual-edit only; `knowledge.py:165` seeds `meaning=""`, `:261` PATCH sets it). New
+  `propose_column_meanings(db,*,organization,data_source,model,llm_inference=None)` + `build_column_meaning_prompt`
+  in `knowledge_proposer.py`: loads semantic tables (selectinload columns), for each BLANK + non-approved column
+  asks the LLM for a one-sentence meaning, writes `status='pending'` (never overwrites approved), returns
+  `{"columns":[ids]}`, fail-soft. Route `POST /api/knowledge/ai-suggest-columns/{ds}` (mirrors `/ai-suggest`,
+  gated `SEMANTIC_LAYER`, placed BEFORE the `/{kind}/{id}` catch-all). Folded into the Auto-train
+  `semantic_metrics` stage (per-source, auto-approved like sem/met; detail → `N col meanings`). FE
+  `SemanticTab.vue` "Suggest column meanings" button (`suggestingColumns` ref, bare `useMyFetch` POST,
+  `loadSemantic()` refresh). Built by 3 parallel subagents (disjoint files) + I wired the train stage.
+  RAN for studio Rahul: 15/15 columns filled + approved + in agent context. `column_7` honestly returned
+  "Unidentified column…" (no hallucination).
+- **Cards:** `reports/[id]/index.vue` Infographic + Insight Map → dimmed `SOON` non-clickable (match Forecast/
+  Anomaly). Excel stays live (real `/workbook`).
+- **Phase 1 (this session):** fresh admin org `1a073f60` had ZERO hybrid overrides (only the wiped demo org
+  55278108 was ever enabled) → all Intelligence tabs showed "Enable…". Wrote 8 overrides to
+  `organization_settings.config.hybrid_overrides` (PROFILE_V2, METRICS_CATALOG, SEMANTIC_LAYER, GOLDEN_QUERIES,
+  PROACTIVE_INSIGHTS, VERIFIED_METRICS, CODE_ENRICH, SEMANTIC_SEARCH; FORECAST left off — needs prophet). Boot
+  log "Loaded 8 hybrid flag override(s)". Rollback backups in session scratchpad `rollback_trainlog/`.

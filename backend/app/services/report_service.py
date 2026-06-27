@@ -405,6 +405,22 @@ class ReportService:
 
         # Create the report object
         report = Report(**report_data.dict())
+        # Guard a STALE studio_id (e.g. the client cached a selection in
+        # localStorage that was since deleted): if the studio no longer exists in
+        # this org, drop it instead of FK-crashing the whole insert. Otherwise a
+        # dead cached agent makes "send" silently do nothing.
+        if studio_id:
+            from app.models.studio import Studio
+            _exists = await db.execute(
+                select(Studio.id).where(
+                    Studio.id == studio_id,
+                    Studio.organization_id == organization.id,
+                    Studio.deleted_at.is_(None),
+                )
+            )
+            if _exists.scalar_one_or_none() is None:
+                logger.warning(f"create_report: dropping stale/unknown studio_id {studio_id} (not in org {organization.id})")
+                studio_id = None
         if studio_id:
             report.studio_id = studio_id
         # Ensure a default theme is set for new reports

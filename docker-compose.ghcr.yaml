@@ -1,0 +1,104 @@
+# =============================================================================
+# CityAgent Analytics - PULL FROM GHCR (no build; for end users)
+# =============================================================================
+# Pulls the prebuilt private image instead of building from source. Give this
+# file + a .env to anyone you've granted Read on the GHCR package.
+#
+#   echo <READ_PAT> | docker login ghcr.io -u <github_user> --password-stdin
+#   docker compose -f docker-compose.ghcr.yaml pull
+#   docker compose -f docker-compose.ghcr.yaml up -d
+#   curl localhost:3007/health
+#
+# Override the image tag with APP_IMAGE in .env (default = :latest).
+# dash-config.yaml is BAKED into the image — no repo checkout needed.
+# =============================================================================
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: ca-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dashpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-dash}
+    volumes:
+      - ca_postgres_data:/var/lib/postgresql   # PG18: mount the PARENT, not /data
+    ports:
+      - "${POSTGRES_PORT:-5439}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dash} -d ${POSTGRES_DB:-dash}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ca-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ca-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-6399}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - ca-network
+
+  app:
+    # Prebuilt image pulled from GHCR (no build: stanza on purpose).
+    image: ${APP_IMAGE:-ghcr.io/raahulgupta07/cityagent-analytics:latest}
+    container_name: ca-app
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "${APP_PORT:-3007}:3000"
+    environment:
+      - ENVIRONMENT=production
+      - DASH_DATABASE_URL=postgresql://${POSTGRES_USER:-dash}:${POSTGRES_PASSWORD:-dashpassword}@postgres:5432/${POSTGRES_DB:-dash}
+      - DASH_ENCRYPTION_KEY=${DASH_ENCRYPTION_KEY:-}
+      - DASH_LICENSE_KEY=${DASH_LICENSE_KEY:-}
+      - DASH_CONFIG_PATH=/app/dash-config.yaml
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # First-boot super-admin seed (idempotent; skipped if unset or email exists).
+      - DASH_ADMIN_EMAIL=${DASH_ADMIN_EMAIL:-}
+      - DASH_ADMIN_PASSWORD=${DASH_ADMIN_PASSWORD:-}
+      - DASH_ADMIN_NAME=${DASH_ADMIN_NAME:-}
+      - AUTOTRAIN_STAGING_DB_USER=${AUTOTRAIN_STAGING_DB_USER:-}
+      - AUTOTRAIN_STAGING_DB_PASSWORD=${AUTOTRAIN_STAGING_DB_PASSWORD:-}
+      - AUTOTRAIN_STAGING_DB_HOST=${AUTOTRAIN_STAGING_DB_HOST:-}
+      - AUTOTRAIN_STAGING_DB_PORT=${AUTOTRAIN_STAGING_DB_PORT:-}
+      - AUTOTRAIN_STAGING_ROLE_SECRET=${AUTOTRAIN_STAGING_ROLE_SECRET:-}
+    volumes:
+      - ca_uploads:/app/backend/uploads
+      - ca_branding:/app/backend/branding_uploads
+      - ca_logs:/app/backend/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    networks:
+      - ca-network
+
+volumes:
+  ca_postgres_data:
+  ca_uploads:
+  ca_branding:
+  ca_logs:
+
+networks:
+  ca-network:
+    driver: bridge

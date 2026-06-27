@@ -59,6 +59,20 @@
             &middot;
             <span class="font-medium text-gray-700">{{ describedPct }}%</span> described
           </span>
+          <!-- AI-fill blank column meanings (mirrors KnowledgePanel's AI-suggest) -->
+          <button
+            v-if="activeDataSourceId"
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-[#C2541E]/30 bg-[#C2541E]/5 px-3 py-1.5 text-xs font-medium text-[#C2541E] hover:bg-[#C2541E]/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            :disabled="suggestingColumns"
+            @click="suggestColumnMeanings"
+          >
+            <Icon
+              :name="suggestingColumns ? 'heroicons:arrow-path' : 'heroicons:tag'"
+              :class="['w-4 h-4', suggestingColumns && 'animate-spin']"
+            />
+            {{ suggestingColumns ? 'Suggesting&hellip;' : 'Suggest column meanings' }}
+          </button>
         </div>
         <div class="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
           <div
@@ -125,6 +139,10 @@ const tables = ref<SemanticTable[]>([])
 const stats = ref<Stats>({ tables: 0, columns: 0, described_pct: 0 })
 const loading = ref(false)
 const errored = ref(false)
+const suggestingColumns = ref(false)
+
+// Nuxt UI toast (auto-imported); guarded so a missing toast never throws.
+const toast = useToast()
 
 const describedPct = computed(() => Math.round(stats.value?.described_pct ?? 0))
 const approvedCount = computed(() => tables.value.filter(t => t.status === 'approved').length)
@@ -212,6 +230,41 @@ async function patchColumn(id: string, body: Record<string, any>): Promise<boole
     return true
   } catch {
     return false
+  }
+}
+
+// --- AI-fill blank column meanings (Semantic Layer) ---
+async function suggestColumnMeanings() {
+  if (!activeDataSourceId.value || suggestingColumns.value) return
+  suggestingColumns.value = true
+  try {
+    // BARE path — useMyFetch prepends /api + injects auth + X-Organization-Id.
+    const { data, error } = await useMyFetch<any>(
+      `/knowledge/ai-suggest-columns/${activeDataSourceId.value}`,
+      { method: 'POST', body: {} }
+    )
+    if (error.value) throw error.value
+    const payload: any = data.value || {}
+    if (payload.disabled) {
+      toast?.add?.({
+        title: 'Semantic Layer is off',
+        description: 'Enable the Semantic Layer feature to draft column meanings.',
+        color: 'amber',
+      })
+      return
+    }
+    const n = payload?.counts?.columns ?? (payload?.proposed?.columns?.length ?? 0)
+    // Re-fetch so the freshly drafted (pending) column meanings appear.
+    await loadSemantic()
+    toast?.add?.({
+      title: `Drafted ${n} column meanings — review & approve`,
+      color: 'green',
+    })
+  } catch {
+    // Fail-soft: never throw to the user.
+    toast?.add?.({ title: 'Could not suggest column meanings', color: 'red' })
+  } finally {
+    suggestingColumns.value = false
   }
 }
 

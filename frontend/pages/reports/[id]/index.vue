@@ -23,13 +23,13 @@
 		@update:dockWidth="setDockWidth"
 	>
 		<template #left>
-	<div class="chat-pane flex flex-col h-full overflow-y-hidden bg-[#F6F1EA] relative"
+	<div class="chat-pane flex flex-col h-full overflow-y-hidden bg-[#FAF8F3] relative"
 		:class="{ 'dash-dock': dashboardFirst && !isMobile }"
 		:style="(dashboardFirst && !isMobile) ? { minWidth: 0, overflowX: 'hidden' } : undefined">
 		<!-- Dashboard-first: collapsed chat dock = thin rail (just an expand chevron). -->
 		<div
 			v-if="dashboardFirst && !isMobile && dockCollapsed"
-			class="absolute inset-0 z-40 bg-[#F6F1EA] border-s border-[#E9E0D3] flex flex-col items-center pt-3"
+			class="absolute inset-0 z-40 bg-[#FAF8F3] border-s border-[#E9E0D3] flex flex-col items-center pt-3"
 		>
 			<button
 				@click="toggleDockCollapsed"
@@ -43,7 +43,7 @@
 		<!-- Dashboard-first: dock header (collapse chevron + "Switch to chat-first"). -->
 		<div
 			v-if="dashboardFirst && !isMobile && !dockCollapsed"
-			class="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-[#E9E0D3] bg-[#F6F1EA]"
+			class="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-[#E9E0D3] bg-[#FAF8F3]"
 		>
 			<button
 				@click="exitDashboardFirst"
@@ -319,7 +319,7 @@
 									<div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
 									</div>
 								</div>
-								<div class="w-full ms-4 max-w-2xl">
+								<div class="w-full ms-4 max-w-2xl min-w-0">
 									<!-- System message -->
 									<div>
 										<!-- Claude-style "thought process" summary header (steps derived from blocks) -->
@@ -329,13 +329,14 @@
 										>
 											<span v-if="m.status === 'in_progress'" class="inline-block w-3.5 h-3.5 rounded-full border-2 border-[#E8C9B5] border-t-[#C2541E] animate-spin"></span>
 											<Icon v-else name="heroicons:check-circle" class="w-4 h-4 text-[#3F7A4F]" />
-											<span class="ui-serif">
+											<span class="ui-serif" :class="{ 'cc-shimmer': m.status === 'in_progress' }">
 												{{ m.status === 'in_progress' ? 'Working' : 'Thought process' }} ·
-												{{ blocksToSteps(m.completion_blocks || []).length }} step{{ blocksToSteps(m.completion_blocks || []).length === 1 ? '' : 's' }}{{ m.status === 'in_progress' ? '…' : ' · Done' }}
+												{{ blocksToSteps(m.completion_blocks || []).length }} step{{ blocksToSteps(m.completion_blocks || []).length === 1 ? '' : 's' }}<template v-if="m.status === 'in_progress'"> · {{ liveElapsed(m) }}</template><template v-else> · Done</template>
 											</span>
 										</div>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id">
+										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id"
+												:class="{ 'cc-step': !!block.tool_execution && block.tool_execution.tool_name !== 'clarify', 'cc-step--done': !!block.tool_execution && block.tool_execution.status === 'success', 'cc-step--err': !!block.tool_execution && block.tool_execution.status === 'error' }">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -543,7 +544,7 @@
 
 									<!-- Suggested follow-up questions (under the last system message only) -->
 									<div v-if="m.id === lastSystemMessage?.id && report?.mode !== 'training'" class="mt-3">
-										<div v-if="(m as any).followups_loading" class="flex items-center gap-2">
+										<div v-if="(m as any).followups_loading && !awaitingClarify" class="flex items-center gap-2">
 											<span class="px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-gray-50 text-gray-400 animate-pulse">Thinking of follow-ups…</span>
 										</div>
 										<div v-else-if="(m as any).followups?.length">
@@ -589,7 +590,8 @@
 				<!-- Chat / deep mode empty state -->
 				<template v-else>
 					<div class="flex flex-col items-center text-center min-h-[58vh] justify-center">
-						<h1 class="text-lg font-semibold" style="font-family: 'Spectral', ui-serif, Georgia, serif">{{ $t('reports.emptyTitle') }}</h1>
+						<div class="text-[11px] tracking-wide uppercase text-[#A8A294] mb-2">New report · no messages yet</div>
+							<h1 class="text-lg font-semibold" style="font-family: 'Spectral', ui-serif, Georgia, serif">{{ $t('reports.emptyTitle') }}</h1>
 						<div v-if="agentConversationStarters.length > 0" class="mt-5 flex flex-wrap justify-center gap-2">
 							<button
 								v-for="s in agentConversationStarters"
@@ -606,8 +608,15 @@
 			</div>
 		</div>
 
+		<!-- Run paused waiting for the user's clarify answer: calm chip, NOT a spinner. -->
+		<div v-if="awaitingClarify" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+			<div class="inline-flex items-center gap-2 text-xs text-gray-500 bg-[#FBFAF6] border border-[#E9E0D3] rounded-full px-3 py-1.5">
+				<Icon name="heroicons-clock" class="w-3.5 h-3.5 text-gray-400" />
+				<span>Waiting for your answer — run paused</span>
+			</div>
+		</div>
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
-		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-else-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<Spinner class="w-3 h-3 me-2 text-gray-400" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
@@ -655,7 +664,7 @@
 			</div>
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
-		<div class="shrink-0 bg-[#F6F1EA] pt-2 pb-6">
+		<div class="shrink-0 bg-[#FAF8F3] pt-2 pb-6">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-4 max-w-2xl']">
 				<!-- Slide-workspace composer framing: PromptBoxV2 owns its own placeholder
 				     (i18n, internal), so we surface the slide-scoped intent as a hint chip
@@ -856,13 +865,13 @@
 							<svg width="15" height="15" fill="none" stroke="#1E9E57" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8l8 8M16 8l-8 8"/></svg>
 							<div class="mt-1.5 text-[10.5px] font-semibold text-[#157A43] leading-tight">Excel</div>
 						</button>
-						<button @click="handleExampleClick('Generate an infographic one-pager for: ' + (lastUserQuestion || report?.title || 'this data'))" class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#FBEFF6] transition cursor-pointer hover:-translate-y-px hover:shadow-md hover:border-[#d9c4b6]">
-							<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#F6D9EC] text-[#C13D8C]">&beta;</span>
+						<div class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#FBEFF6] cursor-default opacity-65">
+							<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#F6D9EC] text-[#C13D8C]">SOON</span>
 							<svg width="15" height="15" fill="none" stroke="#C13D8C" stroke-width="1.8" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="9" cy="8" r="2"/><path d="M13 7h4M7 14h10M7 17h7"/></svg>
 							<div class="mt-1.5 text-[10.5px] font-semibold text-[#A52E72] leading-tight">Infographic</div>
-						</button>
+						</div>
 						<div class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#F1EEFB] cursor-default opacity-65">
-							<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#E3DBF8] text-[#6B4FD0]">&middot;</span>
+							<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#E3DBF8] text-[#6B4FD0]">SOON</span>
 							<svg width="15" height="15" fill="none" stroke="#6B4FD0" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h6M13 12l4-5M13 12l4 5"/></svg>
 							<div class="mt-1.5 text-[10.5px] font-semibold text-[#5A41B0] leading-tight">Insight Map</div>
 						</div>
@@ -1217,6 +1226,38 @@
 						Generate a deck from this report — ask the chat to <span class="font-medium text-[#1f2328]">&ldquo;create a slide deck&rdquo;</span>.
 					</div>
 				</div>
+				<!-- Flag ON: build a REAL slides artifact (python-pptx deck + chart
+				     previews + .pptx) from the report's existing charts — no chat. On
+				     success the artifacts refetch flips hasSlidesArtifact → the
+				     ArtifactFrame branch above renders the real deck. -->
+				<div
+					v-else-if="oneClickEnabled"
+					class="h-full flex flex-col items-center justify-center text-center gap-3 px-6"
+				>
+					<div class="w-12 h-12 rounded-xl bg-[#F6EFEA] flex items-center justify-center">
+						<Icon name="heroicons:presentation-chart-bar" class="w-6 h-6 text-[#C2541E]" />
+					</div>
+					<div class="text-sm font-semibold text-[#1f2328]">Build a slide deck</div>
+					<div class="text-[13px] text-[#7A7066] max-w-xs leading-relaxed">
+						Turn this report's charts into a polished presentation with real charts, ready to export as PowerPoint.
+					</div>
+					<button
+						class="mt-1 px-4 py-2 rounded-lg bg-[#C2541E] hover:bg-[#A8330F] text-white text-[13px] font-medium flex items-center gap-2 transition-colors disabled:opacity-60"
+						:disabled="slideGenLoading"
+						@click="generateSlideDeck"
+					>
+						<Icon
+							:name="slideGenLoading ? 'heroicons:arrow-path' : 'heroicons:sparkles'"
+							:class="['w-4 h-4', slideGenLoading ? 'animate-spin' : '']"
+						/>
+						{{ slideGenLoading ? 'Generating deck…' : 'Generate slide deck' }}
+					</button>
+					<p v-if="slideGenLoading" class="text-[11px] text-[#9a958c]">
+						This takes ~15–30s — building slides and rendering chart previews.
+					</p>
+					<p v-if="slideGenError" class="text-[12px] text-[#C0362C] max-w-xs">{{ slideGenError }}</p>
+				</div>
+				<!-- Flag OFF: legacy lightweight client-side deck. -->
 				<SlidesPanel v-else :visualizations="visualizations" :reportTitle="report?.title || 'Report'" />
 			</div>
 
@@ -1261,6 +1302,38 @@
 				@editVisualization="handleEditQuery"
 				class="h-full"
 			/>
+
+			<!-- One-click Dashboard CTA (flag ON): no page artifact yet but the report
+			     HAS charts → offer to build a real dashboard artifact, instead of the
+			     ArtifactFrame "No artifacts yet" dead empty state. On success the
+			     artifacts refetch flips hasPageArtifact → the ArtifactFrame below renders. -->
+			<div
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout && !hasPageArtifact && oneClickEnabled && (visualizations || []).length"
+				class="h-full flex flex-col items-center justify-center text-center gap-3 px-6"
+			>
+				<div class="w-12 h-12 rounded-xl bg-[#F6EFEA] flex items-center justify-center">
+					<Icon name="heroicons:squares-2x2" class="w-6 h-6 text-[#C2541E]" />
+				</div>
+				<div class="text-sm font-semibold text-[#1f2328]">Build a dashboard</div>
+				<div class="text-[13px] text-[#7A7066] max-w-xs leading-relaxed">
+					Turn this report's charts into an interactive dashboard with KPI cards and a responsive grid.
+				</div>
+				<button
+					class="mt-1 px-4 py-2 rounded-lg bg-[#C2541E] hover:bg-[#A8330F] text-white text-[13px] font-medium flex items-center gap-2 transition-colors disabled:opacity-60"
+					:disabled="dashGenLoading"
+					@click="generateDashboard"
+				>
+					<Icon
+						:name="dashGenLoading ? 'heroicons:arrow-path' : 'heroicons:sparkles'"
+						:class="['w-4 h-4', dashGenLoading ? 'animate-spin' : '']"
+					/>
+					{{ dashGenLoading ? 'Generating dashboard…' : 'Generate dashboard' }}
+				</button>
+				<p v-if="dashGenLoading" class="text-[11px] text-[#9a958c]">
+					This takes ~15–30s — building the dashboard from your charts.
+				</p>
+				<p v-if="dashGenError" class="text-[12px] text-[#C0362C] max-w-xs">{{ dashGenError }}</p>
+			</div>
 
 			<!-- Artifact View / Dash tab (handles all states: loading, empty, has artifacts).
 			     mode-filter="page" → shows dashboards only; the slides deck lives in the Slides tab. -->
@@ -1513,6 +1586,26 @@ const isStreaming = ref<boolean>(false)
 const isCompletionInProgress = ref<boolean>(false)
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
+
+// Phase 3 — live elapsed timer for the in-progress "Working" header. A reactive
+// clock that ticks once a second ONLY while streaming (interval cleared when the
+// run ends), so the header can show "Working · 0:42" counting up. Cosmetic.
+const nowTick = ref<number>(Date.now())
+let nowTickHandle: ReturnType<typeof setInterval> | null = null
+watch(isStreaming, (on) => {
+	if (on) {
+		nowTick.value = Date.now()
+		if (nowTickHandle == null) nowTickHandle = setInterval(() => { nowTick.value = Date.now() }, 1000)
+	} else if (nowTickHandle != null) {
+		clearInterval(nowTickHandle); nowTickHandle = null
+	}
+})
+function liveElapsed(m: any): string {
+	const startMs = m?.created_at ? new Date(m.created_at).getTime() : nowTick.value
+	let s = Math.max(0, Math.round((nowTick.value - startMs) / 1000))
+	const mm = Math.floor(s / 60); s = s % 60
+	return mm > 0 ? `${mm}:${String(s).padStart(2, '0')}` : `${s}s`
+}
 // Watchdog: if NO SSE event arrives for this long (or the stream closes without a
 // terminal completion.finished/[DONE]/completion.error), force the run into an error
 // state so the "Thinking…" spinner can never hang forever. Reset on every received
@@ -1577,7 +1670,25 @@ const dashboardRef = ref<any | null>(null)
 // Defensive — walks completion_blocks for any tool_execution.result_json that
 // carries a tabular result (data_model.columns + rows, in either array-of-arrays
 // or array-of-objects shape). Never throws; empty -> Excel shows its empty state.
-const excelSheets = computed(() => {
+// Server-sourced workbook (one sheet per query's latest success step). The
+// /api/queries list strips step rows, so the Excel tab can't be built from
+// loaded charts client-side — this endpoint returns the real grids. Auto-filled
+// on report load (flag-gated). Falls back to message-scraped sheets below.
+const serverSheets = ref<{ name: string; columns: string[]; rows: any[][] }[]>([])
+
+async function loadWorkbook() {
+	if (!oneClickEnabled.value) return
+	try {
+		const { data } = await useMyFetch<any>(`/reports/${report_id}/workbook`)
+		const s = (data.value as any)?.sheets
+		serverSheets.value = Array.isArray(s) ? s : []
+	} catch {
+		serverSheets.value = []  // fail-soft → message-scraped sheets
+	}
+}
+
+// Sheets scraped from the loaded chat messages (the original source).
+const messageSheets = computed(() => {
 	const out: { name: string; columns: string[]; rows: any[][] }[] = []
 	try {
 		for (const m of (messages.value || [])) {
@@ -1611,6 +1722,12 @@ const excelSheets = computed(() => {
 	} catch (e) { /* fail-soft -> empty workbook */ }
 	return out
 })
+
+// The Excel tab prefers the server workbook (real grids for every chart);
+// falls back to message-scraped sheets when the flag is off / fetch fails.
+const excelSheets = computed(() =>
+	serverSheets.value.length ? serverSheets.value : messageSheets.value
+)
 const textWidgetsIds = ref<string[]>([])
 
 // Report summary (queries + instructions independent of message pagination)
@@ -4108,6 +4225,7 @@ onMounted(() => {
     }) as EventListener)
     window.addEventListener('message', handleOfficeJsResult)
     markdownAutoDir.value = useMarkdownAutoDir()
+    loadOneClickFlag().then(loadWorkbook)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -4149,6 +4267,71 @@ async function loadActiveLayoutHasBlocks(): Promise<boolean> {
         hasLegacyLayout.value = false
         return false
     }
+}
+
+// ── One-click artifacts (HYBRID_ONECLICK_ARTIFACTS) ─────────────────────────
+// When the flag is ON, the empty Dashboard / Slides views offer a one-click
+// builder that creates a REAL artifact (page dashboard or slides deck) from the
+// report's existing charts, instead of a dead empty state / placeholder.
+const oneClickEnabled = ref(false)
+const slideGenLoading = ref(false)
+const slideGenError = ref<string | null>(null)
+const dashGenLoading = ref(false)
+const dashGenError = ref<string | null>(null)
+
+async function loadOneClickFlag() {
+	try {
+		const { data } = await useMyFetch<any[]>('/organization/hybrid-flags')
+		const rows = (data.value as any[]) || []
+		const row = rows.find(r => r?.env_name === 'HYBRID_ONECLICK_ARTIFACTS')
+		oneClickEnabled.value = !!row?.effective
+	} catch {
+		oneClickEnabled.value = false  // fail-soft: fall back to placeholders
+	}
+}
+
+async function generateSlideDeck() {
+	if (slideGenLoading.value) return
+	slideGenLoading.value = true
+	slideGenError.value = null
+	try {
+		const { data, error } = await useMyFetch(`/reports/${report_id}/slides/generate`, { method: 'POST' })
+		if (error.value) {
+			throw new Error((error.value as any)?.data?.detail || 'Could not generate the deck.')
+		}
+		const res: any = data.value || {}
+		if (res?.error && !res?.artifact_id) {
+			throw new Error(res.error)
+		}
+		// Refetch artifacts → hasSlidesArtifact flips true → ArtifactFrame renders.
+		await checkHasArtifacts()
+	} catch (e: any) {
+		slideGenError.value = e?.message || 'Slide generation failed. Please try again.'
+	} finally {
+		slideGenLoading.value = false
+	}
+}
+
+async function generateDashboard() {
+	if (dashGenLoading.value) return
+	dashGenLoading.value = true
+	dashGenError.value = null
+	try {
+		const { data, error } = await useMyFetch(`/reports/${report_id}/dashboard/generate`, { method: 'POST' })
+		if (error.value) {
+			throw new Error((error.value as any)?.data?.detail || 'Could not generate the dashboard.')
+		}
+		const res: any = data.value || {}
+		if (res?.error && !res?.artifact_id) {
+			throw new Error(res.error)
+		}
+		// Refetch artifacts → hasPageArtifact flips true → ArtifactFrame renders.
+		await checkHasArtifacts()
+	} catch (e: any) {
+		dashGenError.value = e?.message || 'Dashboard generation failed. Please try again.'
+	} finally {
+		dashGenLoading.value = false
+	}
 }
 
 // Check if the report has any artifacts
@@ -4223,6 +4406,7 @@ function stopResize() {
 onUnmounted(() => {
 	try { _webhookWs?.close() } catch {}
 	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+	if (nowTickHandle != null) { clearInterval(nowTickHandle); nowTickHandle = null }
 	if (import.meta.client) {
 		window.removeEventListener('resize', checkMobile)
 	}
@@ -4708,6 +4892,14 @@ async function startStreaming(requestBody: any, sysId: string) {
 	}
 }
 
+// Run is paused waiting for the user to answer a clarify question: the LAST
+// message carries an (unanswered) clarify block and nothing is streaming.
+// Used to swap the fake "Loading…/follow-ups" spinners for a calm paused chip.
+const awaitingClarify = computed<boolean>(() => {
+	const last = messages.value[messages.value.length - 1]
+	return !!last && !isStreaming.value && hasClarifyBlock(last)
+})
+
 // === Minimal polling for refresh resume (no SSE resume) ===
 const isPolling = ref<boolean>(false)
 const pollIntervalMs = 1200
@@ -4914,6 +5106,82 @@ onMounted(async () => {
 	overflow-y: auto !important;
 }
 
+/* Phase 2 — Claude-style step thread: a status dot + connector rail on each
+   tool step so the thought process reads as a threaded activity log. Cosmetic
+   only; applied to tool_execution blocks via :class in the template. */
+.cc-step {
+	position: relative;
+	padding-inline-start: 20px;
+	margin-top: 2px;
+}
+.cc-step::before {            /* connector rail */
+	content: "";
+	position: absolute;
+	inset-inline-start: 5px;
+	top: 15px;
+	bottom: -2px;
+	width: 1.5px;
+	background: #E9E0D3;
+}
+.cc-step::after {             /* status dot (pending) */
+	content: "";
+	position: absolute;
+	inset-inline-start: 0;
+	top: 3px;
+	width: 11px;
+	height: 11px;
+	border-radius: 9999px;
+	background: #FBFAF6;
+	border: 1.5px solid #E0DACD;
+	box-sizing: border-box;
+}
+.cc-step--done::after {      /* success = green */
+	background: #3F7A4F;
+	border-color: #3F7A4F;
+}
+.cc-step--err::after {       /* error/recovered = amber */
+	background: #C08A2D;
+	border-color: #C08A2D;
+}
+
+/* Phase 3 — shimmer the "Working · 0:42" header text while the run streams. */
+@keyframes ccShimmer { 0% { background-position: -120% 0; } 100% { background-position: 120% 0; } }
+.cc-shimmer {
+	background: linear-gradient(90deg, #9a948a 0%, #9a948a 35%, #d8d0c4 50%, #9a948a 65%, #9a948a 100%);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: ccShimmer 1.8s linear infinite;
+}
+
+/* Phase 4 — tables + dividers in the hero answer (e.g. the Key Metrics table in
+   the financial summary). Clean hairline grid, warm header. */
+.markdown-wrapper :deep(.markdown-content) table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 8px 0 16px;
+	font-size: 13.5px;
+}
+.markdown-wrapper :deep(.markdown-content) th,
+.markdown-wrapper :deep(.markdown-content) td {
+	border: 1px solid #EFEAE1;
+	padding: 8px 11px;
+	text-align: start;
+	unicode-bidi: plaintext;
+}
+.markdown-wrapper :deep(.markdown-content) th {
+	background: #FAF7F1;
+	font-weight: 600;
+	color: #6b6357;
+}
+.markdown-wrapper :deep(.markdown-content) td:first-child { font-weight: 600; }
+.markdown-wrapper :deep(.markdown-content) hr {
+	border: none;
+	border-top: 1px solid #E9E0D3;
+	margin: 18px 0;
+}
+
 /* FIX 1: hide the horizontal scrollbar on the right-panel tab group while
    keeping it scrollable when the panel is narrow. */
 .no-scrollbar {
@@ -5029,10 +5297,14 @@ details[open] > summary .chev {
 	font-size: 13px;
 }
 
-/* Minimal typography akin to CompletionMessageComponent */
+/* Phase 4 — answer reads as the hero: larger, calmer line-height, serif
+   headings + strong emphasis. Cosmetic; the small reasoning/thinking prose
+   keeps its own .thinking-content sizing above. */
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
-	font-size: 13px;
+	font-size: 15px;
+	line-height: 1.7;
+	color: #1f1d1a;
 	/* Prevent layout thrashing during streaming */
 	contain: content;
 	content-visibility: auto;
@@ -5047,13 +5319,18 @@ details[open] > summary .chev {
 	}
 
 	:where(h1, h2, h3, h4, h5, h6) {
-		@apply font-bold mb-4 mt-6;
+		@apply font-bold mb-3 mt-6;
+		font-family: 'Spectral', ui-serif, Georgia, serif;
+		letter-spacing: -0.01em;
 		unicode-bidi: plaintext;
 	}
 
 	h1 { @apply text-2xl; }
 	h2 { @apply text-xl; }
 	h3 { @apply text-lg; }
+
+	/* Bold lead-ins pop a touch more than body weight. */
+	strong, b { font-weight: 700; color: #15130f; }
 
 	ul, ol { @apply ps-6 mb-4; unicode-bidi: plaintext; }
 	ul { @apply list-disc; }

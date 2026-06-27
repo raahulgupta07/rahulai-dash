@@ -3,7 +3,7 @@
     <!-- dashboardFirst (URL ?focus=dashboard): visually move the dashboard panel to
          the main/left side and dock the chat narrow on the right via flex-row-reverse.
          No DOM reorder — the existing chat/panel slots are only resized + flipped. -->
-    <div class="flex h-screen overflow-y-hidden bg-white"
+    <div class="flex h-screen overflow-y-hidden bg-[#FAF8F3]"
          :class="dashboardFirst ? 'flex-row-reverse' : 'flex-row'">
         <!-- Left (Chat) — z-20 so popovers can overlap the right panel.
              In dashboardFirst mode this is the narrow right-hand chat dock
@@ -36,7 +36,7 @@
              :style="{
                  transition: isResizing ? 'none' : 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }"
-             class="flex-1 min-w-0 relative z-10 bg-white flex flex-col">
+             class="flex-1 min-w-0 relative z-10 bg-[#FAF8F3] flex flex-col">
             <!-- Right header (tabs). Hidden in dashboardFirst mode — the board's
                  own toolbar (selector/Share/fullscreen) + the chat dock header are
                  enough; the Outputs/Dashboard/Agents/Slides/Excel tab strip is noise
@@ -46,7 +46,7 @@
             </div>
             <!-- Right content (rounded panel) -->
             <div class="flex-1 min-h-0 p-2 pt-1.5 relative">
-                <div class="h-full w-full bg-[#f8f8f7] rounded-xl border border-black/[0.08] overflow-hidden">
+                <div class="h-full w-full bg-[#FAF8F3] rounded-xl border border-[#E9E0D3] overflow-hidden">
                     <slot name="right" />
                 </div>
                 <!-- Resizer overlaid on rounded panel's start edge (between

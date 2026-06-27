@@ -71,6 +71,7 @@ from app.routes import (
     dash_settings,
     external_platform,
     studio_reports,
+    report_slides,
     external_user_mapping,
     telegram_webhook,
     slack_webhook,
@@ -274,6 +275,7 @@ app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(dash_settings.router, prefix="/api")
 app.include_router(external_platform.router, prefix="/api")
 app.include_router(studio_reports.router, prefix="/api")  # hybrid: per-agent scheduled reports (gated HYBRID_AGENT_REPORTS)
+app.include_router(report_slides.router, prefix="/api")   # hybrid: one-click slide deck (gated HYBRID_SLIDE_DECK)
 app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
 app.include_router(teams_webhook.router)

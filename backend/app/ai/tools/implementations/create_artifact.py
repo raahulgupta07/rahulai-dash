@@ -1323,6 +1323,18 @@ Vary layouts between:
 4. Use visualization data from the visualizations list.
 5. Margins: start shapes at Inches(0.75) to Inches(1) from edges.
 
+**⚠️ DATA SAFETY — NEVER add a chart with empty categories (this hard-crashes the
+whole deck with "chart data contains no categories"):**
+- Before building any `CategoryChartData`, derive categories and FILTER OUT rows
+  whose label is None/empty: `cats = [str(r[label]) for r in rows if r.get(label) not in (None, "")]`.
+- If `cats` is empty (a KPI / single-value / non-categorical visualization), DO
+  NOT call `add_chart`. Render that visualization as a KPI card or a small text
+  table instead (big number + label). A deck of KPI cards is fine.
+- Coerce values defensively: `vals = [float(r.get(measure) or 0) for r in rows]`.
+  Guard every `add_series` so categories and values are non-empty and equal length.
+- One bad visualization must not sink the deck — wrap each chart's build in a
+  try/except and fall back to a text/KPI slide for that one viz.
+
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT - Example with Design Principles Applied
 ═══════════════════════════════════════════════════════════════════════════════

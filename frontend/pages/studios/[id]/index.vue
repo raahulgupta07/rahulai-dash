@@ -308,6 +308,63 @@
                                     </div>
                                 </div>
                                 <p class="text-[11px] text-[#9a958c] mt-2">One pass: profile data · extract knowledge · bind skill to columns · apply rules · mine joins · write goldens · build artifacts. Disabled until ≥1 source is added.</p>
+
+                                <!-- INLINE TRAIN LOG (Option A): per-stage ✓/✗ + error + Reset/Retry.
+                                     Reads Studio.config['_train_status'] (poll + on-mount). Makes a
+                                     failed/stuck run visible instead of a silent frozen spinner. -->
+                                <div v-if="showTrainLogPanel" class="mt-3 border-t border-[#E9E0D3] pt-3">
+                                    <button type="button" class="w-full flex items-center justify-between" @click="showTrainLog = !showTrainLog">
+                                        <span class="flex items-center gap-1.5 text-[11.5px] font-semibold text-[#1f2328]">
+                                            <UIcon :name="showTrainLog ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-[#9a958c]" />
+                                            Training log
+                                        </span>
+                                        <span class="flex items-center gap-1.5 text-[10.5px]">
+                                            <Spinner v-if="trainLog && trainLog.status === 'running'" class="h-3 w-3 text-[#C2541E]" />
+                                            <span :class="trainStatusClass" class="font-medium">{{ trainStatusText }}</span>
+                                        </span>
+                                    </button>
+                                    <div v-if="showTrainLog" class="mt-2.5">
+                                        <!-- view toggle: CLI terminal vs stage summary -->
+                                        <div class="flex items-center gap-1 mb-2">
+                                            <button type="button" @click="trainLogTab = 'logs'" :class="trainLogTab === 'logs' ? 'bg-[#2B2A26] text-white' : 'text-[#6b6b6b] hover:bg-[#F4EEE5]'" class="text-[10px] font-medium rounded-md px-2 py-0.5 transition-colors">Logs</button>
+                                            <button type="button" @click="trainLogTab = 'steps'" :class="trainLogTab === 'steps' ? 'bg-[#2B2A26] text-white' : 'text-[#6b6b6b] hover:bg-[#F4EEE5]'" class="text-[10px] font-medium rounded-md px-2 py-0.5 transition-colors">Steps</button>
+                                            <span class="ml-auto text-[9.5px] text-[#b3ac9f] tabular-nums">{{ trainLogLines.length }} lines</span>
+                                        </div>
+                                        <div v-if="trainLog && trainLog.status === 'running'" class="mb-2 h-1 rounded-full bg-[#EDE6DA] overflow-hidden">
+                                            <div class="h-full bg-[#C2541E] transition-all duration-500" :style="{ width: (trainLog.pct || 0) + '%' }"></div>
+                                        </div>
+
+                                        <!-- CLI TERMINAL (Claude-Code style) -->
+                                        <div v-if="trainLogTab === 'logs'" ref="trainTermEl" class="rounded-lg border border-[#2f2b24] bg-[#1b1813] px-3 py-2.5 max-h-[300px] overflow-y-auto font-mono text-[11px] leading-[1.55]" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace">
+                                            <div v-if="!trainLogLines.length" class="text-[#6f685c]">No log lines yet — run Auto-train to stream live.</div>
+                                            <div v-for="(ln, i) in trainLogLines" :key="i" class="flex gap-2 whitespace-pre-wrap break-words">
+                                                <span class="shrink-0 text-[#6f685c] tabular-nums select-none">{{ ln.t }}</span>
+                                                <span class="flex-1 min-w-0"
+                                                      :class="ln.lvl === 'error' ? 'text-[#ff8f7a]' : ln.lvl === 'warn' ? 'text-[#e6c06a]' : (String(ln.msg).startsWith('▸') ? 'text-[#7fc8ff] font-semibold' : 'text-[#d6cfc2]')">{{ ln.msg }}</span>
+                                            </div>
+                                            <div v-if="trainLog && trainLog.status === 'running'" class="text-[#7fc8ff] animate-pulse mt-0.5">▍</div>
+                                        </div>
+
+                                        <!-- STAGE SUMMARY -->
+                                        <div v-else class="space-y-1">
+                                            <div v-for="s in trainStages" :key="s.key" class="flex items-start gap-2 text-[11px]">
+                                                <span class="mt-px w-3.5 shrink-0 flex justify-center">
+                                                    <UIcon v-if="s.state === 'ok'" name="i-heroicons-check-circle-solid" class="w-3.5 h-3.5 text-[#3F7A4F]" />
+                                                    <UIcon v-else-if="s.state === 'err'" name="i-heroicons-x-circle-solid" class="w-3.5 h-3.5 text-[#C0392B]" />
+                                                    <UIcon v-else-if="s.state === 'skip'" name="i-heroicons-minus-circle" class="w-3.5 h-3.5 text-[#c9c2b6]" />
+                                                    <span v-else class="block w-1.5 h-1.5 rounded-full bg-[#d8d2c6] mt-1"></span>
+                                                </span>
+                                                <span class="w-28 shrink-0 font-medium" :class="s.state === 'err' ? 'text-[#C0392B]' : 'text-[#1f2328]'">{{ s.label }}</span>
+                                                <span class="flex-1 min-w-0 truncate" :class="s.state === 'err' ? 'text-[#C0392B]' : 'text-[#8a857c]'" :title="s.text">{{ s.text || (s.state === 'pending' ? 'waiting…' : '') }}</span>
+                                            </div>
+                                        </div>
+                                        <div v-if="canEdit && (trainHasError || (trainLog && trainLog.status !== 'running'))" class="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-[#E9E0D3]">
+                                            <span v-if="trainHasError" class="text-[10.5px] font-medium text-[#C0392B]">{{ trainErrorCount }} stage{{ trainErrorCount === 1 ? '' : 's' }} failed</span>
+                                            <button type="button" :disabled="trainResetting" class="ml-auto text-[10.5px] border border-[#E9E0D3] rounded-md px-2.5 py-1 text-[#6b6b6b] hover:bg-white disabled:opacity-50" @click="resetTrain">Reset</button>
+                                            <button type="button" :disabled="trainingAll || !sources.length" class="text-[10.5px] font-semibold text-white bg-[#C2541E] hover:bg-[#A8330F] rounded-md px-2.5 py-1 disabled:opacity-50" @click="runFullTrain">Retry</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- DETAILS (shown once trained) -->
@@ -1772,6 +1829,94 @@ async function generateAutoEvals() {
 
 // ONE button: profile + knowledge + joins + artifacts, all live
 const trainingAll = ref(false)
+
+// --- Inline TRAIN LOG (Option A) -------------------------------------------
+// The Auto-train job persists a per-stage status in Studio.config['_train_status']
+// (also served by GET /train/status). Today that detail is invisible, so a run
+// that died mid-pipeline (e.g. dead LLM key) looks like a frozen "running 75%".
+// This surfaces each stage with ✓/✗ + the error text + Reset/Retry.
+const trainLog = ref<any>(null)        // last status object {status, step, pct, detail, error, log[]}
+const showTrainLog = ref(true)         // panel expanded
+const trainResetting = ref(false)
+const trainLogTab = ref<'logs' | 'steps'>('logs')   // Claude-Code terminal vs stage summary
+const trainTermEl = ref<HTMLElement | null>(null)    // terminal scroll container
+const trainLogLines = computed<any[]>(() => {
+    const l = trainLog.value && trainLog.value.log
+    return Array.isArray(l) ? l : []
+})
+function _scrollTermBottom() {
+    nextTick(() => { const e = trainTermEl.value; if (e) e.scrollTop = e.scrollHeight })
+}
+watch(() => trainLogLines.value.length, () => { if (trainLogTab.value === 'logs') _scrollTermBottom() })
+// Stage order + friendly labels (keys = _train_status.detail keys).
+const TRAIN_STAGES: Array<[string, string]> = [
+    ['profiling', 'Profile columns'],
+    ['profile_v2', 'Deep profile'],
+    ['packs', 'Bind domain packs'],
+    ['pack_recheck', 'Re-check packs'],
+    ['queries', 'Example queries'],
+    ['evals', 'Eval goldens'],
+    ['pack_goldens', 'Pack goldens'],
+]
+function _stageView(val: any): { state: string; text: string } {
+    if (val == null) return { state: 'pending', text: '' }
+    if (typeof val === 'string') {
+        const ok = val.toLowerCase().startsWith('ok')
+        return { state: ok ? 'ok' : 'err', text: val }
+    }
+    if (typeof val === 'object') {
+        if (val.disabled) return { state: 'skip', text: 'skipped' }
+        const err = val.error || (val.note && /error|fail/i.test(val.note) ? val.note : '')
+        const ok = val.ok !== false && !err
+        const bits: string[] = []
+        if (val.saved != null) bits.push(`${val.saved} saved`)
+        if (val.created != null) bits.push(`${val.created} created`)
+        if (val.bound != null) bits.push(`${val.bound} bound`)
+        if (err) bits.push(String(err))
+        return { state: ok ? 'ok' : 'err', text: bits.join(' · ') || (ok ? 'ok' : 'failed') }
+    }
+    return { state: 'pending', text: '' }
+}
+const trainStages = computed(() => {
+    const d = (trainLog.value && trainLog.value.detail) || {}
+    return TRAIN_STAGES.map(([k, label]) => ({ key: k, label, ..._stageView(d[k]) }))
+})
+const trainHasError = computed(() =>
+    (trainLog.value && trainLog.value.status === 'error') ||
+    trainStages.value.some(s => s.state === 'err'))
+const trainErrorCount = computed(() => trainStages.value.filter(s => s.state === 'err').length)
+const trainStatusText = computed(() => {
+    const st = trainLog.value || {}
+    if (st.status === 'running') return `running · ${st.pct || 0}%`
+    if (st.status === 'done') return 'done'
+    if (st.status === 'error' || trainHasError.value) return `${trainErrorCount.value} failed`
+    return st.status || ''
+})
+const trainStatusClass = computed(() => {
+    const st = trainLog.value || {}
+    if (st.status === 'done' && !trainHasError.value) return 'text-[#3F7A4F]'
+    if (st.status === 'error' || trainHasError.value) return 'text-[#C0392B]'
+    return 'text-[#9a958c]'
+})
+const showTrainLogPanel = computed(() => {
+    const st = trainLog.value
+    return !!st && (st.status || st.step || st.detail)
+})
+async function loadTrainStatus() {
+    try {
+        const { data } = await useMyFetch<any>(`/studios/${studioId.value}/train/status`, { method: 'GET' })
+        const st = (data.value as any) || {}
+        if (st && (st.status || st.step || st.detail)) trainLog.value = st
+    } catch { /* fail-soft */ }
+}
+async function resetTrain() {
+    if (trainResetting.value) return
+    trainResetting.value = true
+    try {
+        await useMyFetch<any>(`/studios/${studioId.value}/train/reset`, { method: 'POST', body: {} })
+        trainLog.value = null
+    } catch { /* fail-soft */ } finally { trainResetting.value = false }
+}
 // Async, NON-BLOCKING: kick the background train job + poll status. The heavy
 // LLM work (profile/queries/evals/artifacts/joins) runs server-side; the FE only
 // polls a % and never holds the request open. You can navigate away — it keeps
@@ -1799,6 +1944,7 @@ async function runFullTrain() {
             await new Promise(r => setTimeout(r, 1800))
             const { data: s } = await useMyFetch<any>(`/studios/${studioId.value}/train/status`, { method: 'GET' })
             const st = (s.value as any) || {}
+            if (st && (st.status || st.step || st.detail)) { trainLog.value = st; showTrainLog.value = true }
             if (st.step) {
                 const msg = `${TRAIN_STEP_LABEL[st.step] || st.step} · ${st.pct || 0}%${st.note ? ' · ' + st.note : ''}`
                 if (msg !== lastMsg) { act.log(msg); lastMsg = msg }
@@ -2981,6 +3127,7 @@ onMounted(async () => {
             loadPacksFlag(),
             loadConnectorsFlag(),
             loadReportsFlag(),
+            loadTrainStatus(),
         ])
     }
 })

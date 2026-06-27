@@ -429,8 +429,26 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
   (explicit import, between New-Report and profile). RULE: every shipped feature bumps
   `VERSION_HYBRID` + adds a `CHANGELOG_HYBRID.md` entry.
 
-**Current state (2026-06-26):** image `cityagent-analytics:dev` on `:3007`, branch `main`,
-mig head **`agentchan1`**, `VERSION_HYBRID`=**1.33.1** (v1.30.1 BAKED + live, healthy; **v1.31.0–1.33.1 source-only, deployed via ephemeral `yarn generate` + `docker cp` to `ca-app:/app/frontend/dist`, NOT baked**). **v1.33.0 = Overview design + studio-scroll across Build/Manage/Settings/Workspace/Monitoring + report follow-up chips auto-fit + Outputs panel 3-up + fullscreen artifact fill + toolbar auto-fit (pushed to GitHub main 2026-06-26). v1.33.1 = Settings layout flush-to-rail (dropped centered max-w-7xl) + Settings rail INTEGRATIONS dedupe (smtp reordered next to integrations in `useAppNav.settingsTabs`) + LLM page split into Preconfigured/Your-Models sections (`LLMsComponent.vue`, FE-only seed-id set, NOT yet pushed).** Pre-1.28 local backlog still applies. v1.22
+**Current state (2026-06-27):** image `cityagent-analytics:dev` on `:3007`, branch `main`,
+mig head **`agentconn1`**, `VERSION_HYBRID`=**1.41.0**. **v1.41.0 = live studio Training-log (Claude-Code CLI
+terminal: per-stage ▸ markers + model/tokens/errors, Logs⇄Steps toggle, Reset/Retry; `train_orchestrator` log[]
+buffer + `_RunLogHandler` + `POST /studios/{id}/train/reset`) + AI column meanings (closes gap: nothing wrote
+`SemanticColumn.meaning`; new `propose_column_meanings` + `POST /knowledge/ai-suggest-columns/{ds}` gated
+SEMANTIC_LAYER + folded into Auto-train semantic_metrics stage auto-approved) + Infographic/InsightMap → SOON.
+EPHEMERAL (docker cp + `docker commit`, NOT Dockerfile build). Org `1a073f60` got 8 hybrid_overrides (Intel
+flags ON, FORECAST off=needs prophet). Rollback tags `pre140-rollback`/`pre141-rollback`, backups in scratchpad.**
+**v1.40.0 = cosmetic chat redesign (Claude/ChatGPT
+grammar: collapsible thinking, threaded tool steps, warm `#FAF8F3` canvas incl Outputs pane) + CreateDataTool
+no-garble count chip + `awaitingClarify` paused-chip + fresh-DB `create_report` stale-`studio_id` FK guard.
+Cosmetic-only, no agent-loop change. EPHEMERAL (FE `yarn generate`+docker cp, backend docker cp+restart) —
+NOT baked. Rollback backups in session scratchpad `rollback_phaseA/`.** **v1.37.0 = per-agent scheduled reports + universal
+report-delivery (pushed `a5444ab`). v1.38–1.39 = one-click artifacts (flag `HYBRID_ONECLICK_ARTIFACTS`, ON org
+55278108): empty report panels become builders — `Generate slide deck` (real python-pptx deck), `Generate
+dashboard` (page artifact), and Excel auto-fills via read-only `GET /api/reports/{id}/workbook`. BE
+`routes/report_slides.py` (shared `_generate_artifact(mode)` reuses the chat `create_artifact` pipeline);
+fixed two pre-existing slides bugs (pptx AST gate forbade `getattr` → `PPTX_ALLOWED_BUILTINS`; empty-category
+charts crash → slides-prompt DATA SAFETY rule). v1.38–1.39 EPHEMERAL (`docker cp` + `fe-sync`, NOT baked, NOT
+pushed).** Earlier source-only stack (v1.31.0–1.33.1) still applies. Pre-1.28 local backlog still applies. v1.22
 = full warm-theme sweep (every page + 148 comps). **v1.23.0 BAKED** = Parquet result storage +
 interactive query endpoint (flag `HYBRID_PARQUET_RESULTS` **default ON**) — large step results
 (≥`HYBRID_PARQUET_MIN_ROWS`=2000 rows) offload to compressed Parquet on `ca_uploads`; dashboards

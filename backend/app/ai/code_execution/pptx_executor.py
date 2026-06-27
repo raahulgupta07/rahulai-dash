@@ -40,6 +40,17 @@ PPTX_ALLOWED_MODULES = frozenset({
     'pptx',
 })
 
+# Safe read-only introspection builtins the pptx codegen legitimately needs.
+# python-pptx styling is full of optional attributes (category_axis, value_axis,
+# has_data_labels…) so the slides prompt mandates a `style_chart_text` helper
+# built on getattr/hasattr. These are read-only attribute access — no exec/eval/
+# import power — so we whitelist them out of FORBIDDEN_BUILTINS for this sandbox
+# ONLY. setattr is deliberately NOT whitelisted (it could mutate dunders).
+PPTX_ALLOWED_BUILTINS = frozenset({
+    'getattr',
+    'hasattr',
+})
+
 
 class PptxSecurityVisitor(ast.NodeVisitor):
     """AST visitor that checks for dangerous code patterns, allowing pptx imports."""
@@ -66,7 +77,7 @@ class PptxSecurityVisitor(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call):
         # Check for forbidden built-in calls like eval(), exec(), open()
         if isinstance(node.func, ast.Name):
-            if node.func.id in FORBIDDEN_BUILTINS:
+            if node.func.id in FORBIDDEN_BUILTINS and node.func.id not in PPTX_ALLOWED_BUILTINS:
                 self.errors.append(f"Forbidden function call: '{node.func.id}()'")
 
         # Check for __import__('os') style calls

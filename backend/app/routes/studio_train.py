@@ -113,3 +113,42 @@ async def get_studio_train_status(
         return status
     except Exception as e:  # noqa: BLE001 - never 500; report fail-soft
         return {"status": "error", "error": str(e)}
+
+
+@router.post("/studios/{studio_id}/train/reset", response_model=dict)
+async def reset_studio_train(
+    studio_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Clear a stuck/failed Auto-train status (editor+).
+
+    A run that died mid-pipeline (e.g. an LLM key failure) leaves
+    ``Studio.config['_train_status']`` frozen at ``status='running'`` forever, so
+    the log panel shows a perpetual spinner. This drops the persisted status (and
+    the in-process store) so the next Auto-train starts clean. Fail-soft."""
+    _require_flag()
+    await _require_role(db, studio_id, current_user, editor=True)
+
+    try:
+        # best-effort clear the per-worker in-process store
+        try:
+            train_orchestrator.reset_status(studio_id)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - optional helper, ignore if absent
+            pass
+
+        from sqlalchemy import select
+        from sqlalchemy.orm.attributes import flag_modified
+        from app.models.studio import Studio
+
+        res = await db.execute(select(Studio).where(Studio.id == studio_id))
+        studio = res.scalar_one_or_none()
+        if studio is not None and isinstance(getattr(studio, "config", None), dict):
+            if "_train_status" in studio.config:
+                studio.config.pop("_train_status", None)
+                flag_modified(studio, "config")
+                await db.commit()
+        return {"status": "idle", "reset": True}
+    except Exception as e:  # noqa: BLE001 - never 500; report fail-soft
+        return {"status": "error", "error": str(e)}

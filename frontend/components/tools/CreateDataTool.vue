@@ -1,7 +1,7 @@
 <template>
   <div class="mb-2">
     <!-- Main Header: Creating Data (always collapsible) -->
-    <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCreateData">
+    <div class="flex items-center flex-wrap min-w-0 text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCreateData">
       <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
@@ -13,11 +13,11 @@
       <span v-else-if="status === 'error'" class="text-gray-700">{{ $t('tools.createData.create') }}</span>
       <span v-else class="text-gray-700">{{ $t('tools.createData.create') }}</span>
       <Transition name="fade-in" appear>
-        <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap">
+        <span v-if="groupedTables.length" class="inline-flex items-center min-w-0">
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
             <span v-if="gidx > 0" class="ms-1 text-gray-300">|</span>
-            <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.names.join(', ')" />
-            <span class="ms-1 text-gray-500">{{ group.names.join(', ') }}</span>
+            <DataSourceIcon :type="group.type" class="h-2.5 ms-1 flex-shrink-0" :title="group.names.join(', ')" />
+            <span class="ms-1 text-gray-500 whitespace-nowrap" :title="group.names.join(', ')">{{ group.names.length }} {{ group.names.length === 1 ? 'table' : 'tables' }}</span>
           </template>
         </span>
       </Transition>

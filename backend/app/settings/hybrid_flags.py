@@ -128,6 +128,7 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_AGENT_CHANNELS": {"label": "Agent Channels", "role": "user", "category": "Agents & Access", "status": "beta", "note": "Per-agent channels (Slack/Teams/WhatsApp/AI Mailbox/MCP/Telegram) scoped to that agent's pinned data. Config in Studio → Access & Channels. Inbound routing for Slack/Teams/WhatsApp is phase 2 (Telegram routing live)."},
     "HYBRID_AGENT_REPORTS": {"label": "Scheduled Reports (per-agent)", "role": "user", "category": "Agents & Access", "status": "beta", "note": "Per-agent 'Reports' tab: schedule a prompt/dashboard to run on a cadence and email the result to subscribers, sent from the agent's own SMTP identity. UI only; gates the Studio → Reports tab."},
     "HYBRID_RICH_REPORT_EMAIL": {"label": "Rich Report Emails", "role": "agent", "category": "Agents & Access", "status": "beta", "note": "Render scheduled/automated report emails from structured results (clean table + sanitized insights + dashboard image/PDF) instead of dumping the raw agent chat. OFF = legacy raw-content email."},
+    "HYBRID_ONECLICK_ARTIFACTS": {"label": "One-click Dashboard / Slides / Excel", "role": "user", "category": "Agents & Access", "status": "beta", "note": "On a report's right panel, turns the empty Dashboard/Slides/Excel states into one-click builders: 'Generate dashboard' (real page artifact), 'Generate slide deck' (python-pptx deck + previews + .pptx) from the report's existing charts, and an auto-filled Excel workbook. Reuses the chat create_artifact pipeline."},
     "HYBRID_QUOTAS": {"label": "Per-Org Quotas", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_DOMAIN_PACKS": {"label": "Domain Packs (Skills)", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_PACK_ROUTER": {"label": "Pack Router", "role": "agent", "category": "Agents & Access", "status": "stable"},
@@ -280,6 +281,16 @@ class HybridFlags:
         # /api/connections/{id}/files router only; no agent-loop effect.
         # Default OFF.
         return _bool("HYBRID_FILE_BROWSER", False)
+
+    @property
+    def ONECLICK_ARTIFACTS(self) -> bool:
+        # One-click builders on a report's right panel (Dashboard / Slides /
+        # Excel): build a REAL page or slides artifact from the report's existing
+        # visualizations (reusing the chat create_artifact pipeline) and
+        # auto-fill the Excel workbook — instead of dead "No X yet" empty states.
+        # Gates POST /api/reports/{id}/{dashboard,slides}/generate + the FE
+        # buttons only; no agent-loop effect. Default OFF.
+        return _bool("HYBRID_ONECLICK_ARTIFACTS", False)
 
     # --- Slice 1: foundation -------------------------------------------------
     @property
@@ -788,6 +799,7 @@ class HybridFlags:
             "FILE_BROWSER": self.FILE_BROWSER,
             "AGENT_REPORTS": self.AGENT_REPORTS,
             "RICH_REPORT_EMAIL": self.RICH_REPORT_EMAIL,
+            "ONECLICK_ARTIFACTS": self.ONECLICK_ARTIFACTS,
         }
 
 

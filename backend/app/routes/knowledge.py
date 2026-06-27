@@ -944,6 +944,68 @@ async def ai_suggest_knowledge(
     }
 
 
+@router.post("/ai-suggest-columns/{data_source_id}")
+async def ai_suggest_columns(
+    data_source_id: str,
+    body: dict | None = Body(default=None),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """AI-suggest per-column semantic meanings from a data source's schema.
+
+    Returns the ids of the proposed (pending) column rows + counts. SEMANTIC_LAYER
+    OFF -> a disabled, zero-leak result with NO LLM call and NO data-source lookup.
+    Body is ignored (columns has no focus).
+    """
+    # Flag gate FIRST (short-circuits before the data-source lookup): if the
+    # semantic layer is not enabled, do nothing.
+    if not flags.SEMANTIC_LAYER:
+        return {
+            "disabled": True,
+            "proposed": {"columns": []},
+            "counts": {"columns": 0},
+        }
+
+    # Fetch the data source, org-scoped (same select/where as /ai-suggest).
+    ds_res = await db.execute(
+        select(DataSource)
+        .where(
+            DataSource.id == data_source_id,
+            DataSource.organization_id == organization.id,
+        )
+        .options(selectinload(DataSource.tables).selectinload(DataSourceTable.connection_table))
+    )
+    data_source = ds_res.scalar_one_or_none()
+    if data_source is None:
+        raise AppError.not_found(ErrorCode.DATA_SOURCE_NOT_FOUND, "Data source not found")
+
+    # Resolve the org's small model the same way the Phase-5 worker does.
+    from app.services.llm_service import LLMService
+    model = await LLMService().get_default_model(db, organization, current_user, is_small=True)
+
+    # Fail-soft: data/LLM issues degrade to an empty result; never 500.
+    try:
+        from app.ai.brain.knowledge_proposer import propose_column_meanings
+        result = await propose_column_meanings(
+            db,
+            organization=organization,
+            data_source=data_source,
+            model=model,
+        )
+    except Exception:
+        result = {"columns": []}
+
+    if not isinstance(result, dict):
+        result = {"columns": []}
+    columns = result.get("columns", [])
+    return {
+        "proposed": result,
+        "counts": {"columns": len(columns)},
+        "disabled": False,
+    }
+
+
 _PENDING_KINDS = ("semantic", "metric", "query")
 
 

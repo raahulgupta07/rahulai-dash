@@ -65,6 +65,94 @@ def _set(studio_id, **kw) -> None:
     cur.update(kw)
 
 
+# --- Claude-Code-style live log -------------------------------------------
+# Each run keeps a rolling buffer of timestamped log lines (capped). Lines come
+# from (a) explicit _log() calls at stage/LLM boundaries and (b) a logging
+# handler that captures everything the trainer + LLM client already emit, so the
+# panel shows "which model / how many tokens / what saved" without threading
+# state through every call site.
+_LOG_CAP = 400          # max lines kept in-process
+_LOG_PERSIST_CAP = 200  # max lines mirrored to the DB (bound JSON size)
+
+
+def _log(studio_id, msg, level: str = "info") -> None:
+    """Append one timestamped line to the run's log buffer (capped)."""
+    sid = str(studio_id)
+    cur = _RUNS.get(sid)
+    if not isinstance(cur, dict):
+        return
+    buf = cur.get("log")
+    if not isinstance(buf, list):
+        buf = []
+        cur["log"] = buf
+    try:
+        ts = datetime.now().strftime("%H:%M:%S.") + f"{datetime.now().microsecond // 100000}"
+    except Exception:  # noqa: BLE001
+        ts = ""
+    buf.append({"t": ts, "lvl": level, "msg": str(msg)[:500]})
+    if len(buf) > _LOG_CAP:
+        del buf[: len(buf) - _LOG_CAP]
+
+
+class _RunLogHandler(logging.Handler):
+    """Routes log records emitted DURING a run into that run's log buffer.
+
+    Attached to the trainer + LLM loggers for the run's lifetime, detached in
+    finally. Maps Python levels to our cli levels (error/warn/info)."""
+
+    def __init__(self, sid: str):
+        super().__init__(level=logging.INFO)
+        self._sid = sid
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+        try:
+            if record.levelno >= logging.ERROR:
+                lvl = "error"
+            elif record.levelno >= logging.WARNING:
+                lvl = "warn"
+            else:
+                lvl = "info"
+            msg = record.getMessage()
+            # strip the noisy module-prefix the trainer prepends
+            if msg.startswith("train_orchestrator "):
+                msg = msg[len("train_orchestrator "):]
+            _log(self._sid, msg, lvl)
+        except Exception:  # noqa: BLE001 - logging must never raise
+            pass
+
+
+# Logger names whose records we capture into the live log during a run.
+_CAPTURE_LOGGERS = ("app.ai.knowledge", "app.ai.llm", __name__)
+
+
+def _attach_log_capture(sid: str):
+    """Attach a capture handler to the trainer/LLM loggers; return (handler,
+    [loggers]) so the caller can detach in finally."""
+    handler = _RunLogHandler(sid)
+    attached = []
+    for name in _CAPTURE_LOGGERS:
+        lg = logging.getLogger(name)
+        lg.addHandler(handler)
+        if lg.level == logging.NOTSET or lg.level > logging.INFO:
+            # ensure INFO records reach the handler without changing global config
+            lg.setLevel(logging.INFO)
+        attached.append(lg)
+    return handler, attached
+
+
+def _detach_log_capture(handler, loggers) -> None:
+    for lg in loggers or []:
+        try:
+            lg.removeHandler(handler)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def reset_status(studio_id) -> None:
+    """Drop any in-process status/log for a studio (used by the reset route)."""
+    _RUNS.pop(str(studio_id), None)
+
+
 async def _persist_db(db, studio, sid) -> None:
     """Mirror the in-process status onto Studio.config['_train_status'] so it is
     visible across uvicorn workers (the in-process _RUNS is per-process). Cheap,
@@ -74,7 +162,11 @@ async def _persist_db(db, studio, sid) -> None:
 
         cfg = studio.config if isinstance(studio.config, dict) else {}
         cfg = dict(cfg)
-        cfg["_train_status"] = _RUNS.get(str(sid), {})
+        snap = dict(_RUNS.get(str(sid), {}))
+        # mirror only the tail of the log to bound the persisted JSON size
+        if isinstance(snap.get("log"), list) and len(snap["log"]) > _LOG_PERSIST_CAP:
+            snap["log"] = snap["log"][-_LOG_PERSIST_CAP:]
+        cfg["_train_status"] = snap
         studio.config = cfg
         flag_modified(studio, "config")
         await db.commit()
@@ -145,7 +237,10 @@ async def run_training(studio_id, organization_id, user_id) -> None:
         "pct": 5,
         "started_at": datetime.utcnow().isoformat(),
         "detail": {},
+        "log": [],
     }
+    _log_handler, _log_loggers = _attach_log_capture(sid)
+    _log(sid, "Auto-train started", "info")
 
     try:
         from app.dependencies import async_session_maker
@@ -178,6 +273,14 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             detail = _RUNS[sid]["detail"]
             # Resolve pinned sources ONCE — reused across profiling + joins stages.
             sources = await _resolve_pinned_sources(db, studio, organization)
+            _log(sid, f"studio '{getattr(studio, 'name', sid)}' · {len(sources)} pinned source(s)", "info")
+            try:
+                from app.services.llm_service import LLMService as _LLMSvc0
+                _dm = await _LLMSvc0().get_default_model(db, organization)
+                _dm_name = getattr(_dm, "model_id", None) or getattr(_dm, "name", None) or str(_dm)
+                _log(sid, f"default analysis model: {_dm_name}", "info")
+            except Exception as _dme:  # noqa: BLE001 - fail-soft, model is informational
+                _log(sid, f"could not resolve default model: {_dme}", "warn")
 
             # --- Stage 1: profile all pinned sources (pct 10 -> 40) -----------
             # Profiling N tables × many columns against a live connector can take
@@ -185,6 +288,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             # A per-table progress callback interpolates pct across the 10..40
             # slice and writes a human note ("RTM · 3/8 tables"), so the bar moves.
             _set(sid, step="profiling", pct=10, note="starting")
+            _log(sid, "▸ profile columns", "info")
             try:
                 from app.routes.column_profile import _profile_all_tables
 
@@ -240,6 +344,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
 
             if _flags.PROFILE_V2:
                 _set(sid, step="profile_v2", pct=41)
+                _log(sid, "▸ deep profile", "info")
                 try:
                     from sqlalchemy import select as _sel
                     from app.models.datasource_table import DataSourceTable as _DST
@@ -289,6 +394,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             # Zero DB reads/writes when flag is OFF.
             if _flags.CODE_ENRICH:
                 _set(sid, step="code_enrich", pct=42)
+                _log(sid, "▸ code enrich", "info")
                 try:
                     from app.ai.knowledge.code_enrich import enrich_source
                     from app.services.llm_service import LLMService as _LLMSvc
@@ -327,6 +433,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             # pending/dormant StudioBoundPack rows. Then render the studio's ACTIVE
             # skills into a context block that biases the query/eval generators.
             _set(sid, step="packs", pct=42)
+            _log(sid, "▸ bind domain packs", "info")
             skill_context = ""
             try:
                 from app.ai.packs.pack_train import (
@@ -351,6 +458,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
 
             # --- Stage 2: auto-queries (pct 60) -------------------------------
             _set(sid, step="queries", pct=45)
+            _log(sid, "▸ write example queries", "info")
             try:
                 from app.ai.knowledge.auto_queries import generate_queries_for_studio
 
@@ -372,6 +480,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
 
             # --- Stage 3: auto-evals (pct 75) ---------------------------------
             _set(sid, step="evals", pct=65)
+            _log(sid, "▸ write eval goldens", "info")
             try:
                 from app.ai.knowledge.auto_evals import generate_evals_for_studio
 
@@ -424,6 +533,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
 
             # --- Stage 4: artifacts loop (pct 95) -----------------------------
             _set(sid, step="artifacts", pct=80)
+            _log(sid, "▸ generate artifacts", "info")
             artifacts = {}
             try:
                 from app.models.studio import StudioArtifact
@@ -460,14 +570,16 @@ async def run_training(studio_id, organization_id, user_id) -> None:
 
             if _flags.SEMANTIC_LAYER or _flags.METRICS_CATALOG:
                 _set(sid, step="semantic_metrics", pct=93)
+                _log(sid, "▸ semantic + metrics", "info")
                 try:
                     from sqlalchemy import update as _sql_update
 
                     from app.ai.brain.knowledge_proposer import (
+                        propose_column_meanings,
                         propose_knowledge_from_schema,
                     )
                     from app.models.metric_definition import MetricDefinition
-                    from app.models.semantic_table import SemanticTable
+                    from app.models.semantic_table import SemanticColumn, SemanticTable
                     from app.services.llm_service import LLMService
 
                     focus = (
@@ -480,6 +592,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
                     )
                     sem_ids: list[str] = []
                     met_ids: list[str] = []
+                    col_ids: list[str] = []
                     for ds in sources:
                         try:
                             r = await propose_knowledge_from_schema(
@@ -498,6 +611,24 @@ async def run_training(studio_id, organization_id, user_id) -> None:
                             continue
                         sem_ids.extend((r or {}).get("semantics", []) or [])
                         met_ids.extend((r or {}).get("metrics", []) or [])
+                        # Per-column meanings: only meaningful when SEMANTIC_LAYER is
+                        # on. Fills blank SemanticColumn.meaning rows (pending), then
+                        # we auto-approve below like every other Auto-train surface.
+                        if _flags.SEMANTIC_LAYER:
+                            try:
+                                rc = await propose_column_meanings(
+                                    db,
+                                    organization=organization,
+                                    data_source=ds,
+                                    model=model,
+                                )
+                                col_ids.extend((rc or {}).get("columns", []) or [])
+                            except Exception as e:  # noqa: BLE001 - per-source fail-soft
+                                logger.warning(
+                                    "train_orchestrator column meanings failed for %s: %s",
+                                    getattr(ds, "id", "?"),
+                                    e,
+                                )
 
                     # Auto-approve the fresh proposals (Auto-train auto-approves;
                     # keeps the Review queue empty and the rows live in context).
@@ -513,10 +644,17 @@ async def run_training(studio_id, organization_id, user_id) -> None:
                             .where(MetricDefinition.id.in_(met_ids))
                             .values(status="approved")
                         )
-                    if sem_ids or met_ids:
+                    if col_ids:
+                        await db.execute(
+                            _sql_update(SemanticColumn)
+                            .where(SemanticColumn.id.in_(col_ids))
+                            .values(status="approved")
+                        )
+                    if sem_ids or met_ids or col_ids:
                         await db.commit()
                     detail["semantic_metrics"] = (
-                        f"ok ({len(sem_ids)} semantic, {len(met_ids)} metrics)"
+                        f"ok ({len(sem_ids)} semantic, {len(met_ids)} metrics, "
+                        f"{len(col_ids)} col meanings)"
                     )
                 except Exception as e:  # noqa: BLE001
                     try:
@@ -529,6 +667,7 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             # --- Stage 5: value-overlap join mining (pct 98) ------------------
             # Proven-SQL joins need query history; value-overlap works on day 1.
             _set(sid, step="joins", pct=94)
+            _log(sid, "▸ mine joins", "info")
             try:
                 from app.ai.knowledge.join_miner import mine_value_overlap_edges
 
@@ -551,6 +690,13 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             _set(sid, pct=98)
 
             # --- Done ---------------------------------------------------------
+            _errs = [k for k, v in detail.items()
+                     if (isinstance(v, str) and v.lower().startswith("error"))
+                     or (isinstance(v, dict) and v.get("ok") is False)]
+            if _errs:
+                _log(sid, f"finished with {len(_errs)} failed stage(s): {', '.join(_errs)}", "warn")
+            else:
+                _log(sid, "all stages complete — agent ready", "info")
             _set(
                 sid,
                 status="done",
@@ -561,7 +707,10 @@ async def run_training(studio_id, organization_id, user_id) -> None:
             await _persist_db(db, studio, sid)
     except Exception as e:  # noqa: BLE001 - fatal, never raise out of the task
         logger.warning("train_orchestrator fatal for studio %s: %s", sid, e)
-        _RUNS[sid] = {"status": "error", "error": str(e)}
+        _log(sid, f"fatal: {e}", "error")
+        _set(sid, status="error", step="error", error=str(e))
+    finally:
+        _detach_log_capture(_log_handler, _log_loggers)
 
 
 def start_training(studio_id, organization_id, user_id) -> dict:
