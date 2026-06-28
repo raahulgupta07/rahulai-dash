@@ -42,16 +42,30 @@ def detect(path: str, filename: str) -> SourceDoc:
 def extract(source: SourceDoc) -> tuple[List[RawTable], List[ProseBlock]]:
     """EXTRACT — source → clean RawTables + ProseBlocks.
 
-    P1: spreadsheet via (extended) ``ingest/excel_reader.py`` + merged-cell fill
-    + multi-table split + hierarchical-header flatten.
+    P1: spreadsheet via ``excel_extract`` (merged-cell fill + multi-table split +
+    hierarchical-header flatten). On empty result, fall back to the existing
+    ``ingest/excel_reader.read_excel`` so we never do worse than today.
     P2: PDF (pdfplumber/camelot), Word (docx), scanned/image (OpenRouter vision).
     """
-    return [], []
+    if source.kind != "spreadsheet" or source.ext in ("csv", "tsv", "txt"):
+        return [], []   # CSV handled by existing path; PDF/Word land in P2
+    try:
+        from app.services.ingest_brain.excel_extract import extract_tables
+        tables = extract_tables(source.path, filename=source.filename)
+        return tables, []
+    except Exception:  # noqa: BLE001
+        logger.exception("ingest_brain.extract failed")
+        return [], []
 
 
 def profile(tables: List[RawTable]) -> List[ColumnProfile]:
     """PROFILE — per column → ColumnProfile (dtype/unit/null%/role/PII). [P1]"""
-    return []
+    try:
+        from app.services.ingest_brain.profiler import profile_tables
+        return profile_tables(tables)
+    except Exception:  # noqa: BLE001
+        logger.exception("ingest_brain.profile failed")
+        return []
 
 
 def understand(profiles: List[ColumnProfile], *, llm_inference=None) -> List[ColumnProfile]:
