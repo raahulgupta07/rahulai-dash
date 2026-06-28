@@ -73,6 +73,7 @@ from app.routes import (
     studio_reports,
     studio_self_learn,
     report_slides,
+    moa_test,
     external_user_mapping,
     telegram_webhook,
     slack_webhook,
@@ -278,6 +279,7 @@ app.include_router(external_platform.router, prefix="/api")
 app.include_router(studio_reports.router, prefix="/api")  # hybrid: per-agent scheduled reports (gated HYBRID_AGENT_REPORTS)
 app.include_router(studio_self_learn.router, prefix="/api")  # hybrid: per-agent self-learn cadence (master STUDIO_LEARN_DAEMON_ENABLED)
 app.include_router(report_slides.router, prefix="/api")   # hybrid: one-click slide deck (gated HYBRID_SLIDE_DECK)
+app.include_router(moa_test.router, prefix="/api")        # hybrid: Mixture-of-Agents test endpoint (sidecar, no prod path)
 app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
 app.include_router(teams_webhook.router)
