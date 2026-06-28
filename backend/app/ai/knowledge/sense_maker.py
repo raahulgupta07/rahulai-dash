@@ -407,9 +407,11 @@ async def build_sense_making(db, *, steps, question: str, model,
             except Exception:
                 continue
 
-        # 4. Optimization #4 — skip when pointless (no signal + every df tiny).
-        all_small = all(_safe_len(e["df"]) < _SMALL_DF_ROWS for e in chosen)
-        if len(signals) == 0 and all_small:
+        # 4. Optimization #4 — skip only when truly pointless: no signal AND every
+        # result is a single row/cell (a scalar). A small multi-row comparison
+        # (e.g. 2 sites) carries real meaning, so let it reach the LLM + grounding.
+        truly_trivial = all(_safe_len(e["df"]) <= 1 for e in chosen)
+        if len(signals) == 0 and truly_trivial:
             return None
 
         # Build the data sample from the best (first-selected) df.

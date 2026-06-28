@@ -123,6 +123,7 @@
 						<ChatSummary
 							:reportId="report_id"
 							:latestAnswer="latestAnswer"
+							:messages="messages"
 							:scheduledPrompts="scheduledPrompts"
 							:artifactList="reportArtifacts"
 							:queryList="queryList"
@@ -132,6 +133,12 @@
 							:pendingBuildId="pendingTrainingBuild?.id || null"
 							:pendingTrainingBuild="pendingTrainingBuild"
 							:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
+							:sessionSummary="sessionSummary"
+							:sessionSummaryStale="sessionSummaryStale"
+							:sessionSummaryLoading="sessionSummaryLoading"
+							:senseMaking="latestSenseMaking"
+							:senseMakingPending="decisionForming"
+							@refreshSessionSummary="onRefreshSessionSummary"
 							@approveTrainingBuild="onApproveTrainingBuild"
 							@discardTrainingBuild="onDiscardTrainingBuild"
 							@discardTrainingInstruction="onDiscardTrainingInstruction"
@@ -328,9 +335,9 @@
 											class="flex items-center gap-2 mb-2 text-[13px] text-[#7A7066] select-none"
 										>
 											<template v-if="m.status === 'in_progress'">
-												<span class="cai-wave" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q10 1 20 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q10 17 20 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
-												<span class="ui-serif font-medium text-[#2A2420] truncate">{{ runningStageText(m) }}</span>
-												<span class="cai-wave cai-flip" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q10 1 20 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q10 17 20 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
+												<span class="cai-wave" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q5 3 10 9 T20 9 T30 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q5 15 10 9 T20 9 T30 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
+												<span class="ui-serif font-medium text-[#2A2420] truncate cc-shimmer">{{ runningStageText(m) }}</span>
+												<span class="cai-wave cai-flip" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q5 3 10 9 T20 9 T30 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q5 15 10 9 T20 9 T30 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
 												<span class="ml-1 tabular-nums text-[11.5px] text-[#9A8678] flex-none">{{ liveElapsed(m) }}</span>
 											</template>
 											<template v-else>
@@ -454,6 +461,17 @@
 											/>
 										</div>
 
+										<!-- F10 DECISION card — sense_making lives as a TOP-LEVEL field on the
+										     system completion (carried into the message build). Render it once per
+										     finished answer turn, right under the answer. Was lost when the chat
+										     thread was rewritten off CompletionMessageComponent. -->
+										<DecisionCard
+											v-if="m.role === 'system' && m.status !== 'in_progress' && m.sense_making"
+											:sense="m.sense_making"
+											:compact="false"
+											class="mt-3"
+										/>
+
 										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
 										<KnowledgeGroup
 											v-if="(m as any)._harness_running || (m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
@@ -466,9 +484,9 @@
 
 										<!-- Thinking pill when system is working but no visible progress - moved to end -->
 										<div v-if="shouldShowWorkingDots(m)" class="mt-2 flex items-center gap-2.5 text-[13px] text-[#7A7066]">
-											<span class="cai-wave" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q10 1 20 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q10 17 20 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
-											<span class="ui-serif font-medium text-[#2A2420] truncate">{{ runningStageText(m) }}</span>
-											<span class="cai-wave cai-flip" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q10 1 20 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q10 17 20 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
+											<span class="cai-wave" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q5 3 10 9 T20 9 T30 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q5 15 10 9 T20 9 T30 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
+											<span class="ui-serif font-medium text-[#2A2420] truncate cc-shimmer">{{ runningStageText(m) }}</span>
+											<span class="cai-wave cai-flip" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q5 3 10 9 T20 9 T30 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q5 15 10 9 T20 9 T30 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
 											<span class="ml-1 tabular-nums text-[11.5px] text-[#9A8678] flex-none">{{ liveElapsed(m) }}</span>
 										</div>
 									</div>
@@ -674,14 +692,14 @@
 			<!-- Persistent run-status strip: live wave + current step + elapsed,
 			     docked just above the composer so progress stays in view even when
 			     the message thread is scrolled up. Shows only while a run is live. -->
-			<div v-if="(runActive && lastSystemMessage) || autoBuilding" class="mx-auto w-full px-4 max-w-2xl mb-2">
+			<!-- Dock strip ONLY for the post-run auto-build phase (the live run already
+			     shows its wave inline in the thread — no duplicate while running). -->
+			<div v-if="autoBuilding || decisionForming" class="mx-auto w-full px-4 max-w-2xl mb-2">
 				<div class="flex items-center gap-2.5 px-3.5 py-2 rounded-xl border border-[#EFE3D5] bg-gradient-to-b from-[#FCF4EC] to-[#FAF8F3] text-[13px] text-[#7A7066]">
-					<span class="cai-wave" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q10 1 20 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q10 17 20 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
-					<span class="ui-serif font-medium text-[#2A2420] truncate">{{ runActive ? runningStageText(lastSystemMessage) : 'Building a dashboard from your data…' }}</span>
-					<span class="cai-wave cai-flip" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q10 1 20 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q10 17 20 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
-					<span v-if="runActive" class="ml-auto tabular-nums text-[11.5px] text-[#9A8678] flex-none">{{ liveElapsed(lastSystemMessage) }}</span>
-					<button v-if="runActive" class="flex-none text-[11.5px] text-[#9A8678] border border-[#EFE3D5] rounded-full px-2.5 py-0.5 bg-white hover:text-[#A8330F]" @click="abortStream">Stop</button>
-					<span v-else class="ml-auto flex-none text-[11px] text-[#9A8678]">auto · one-click</span>
+					<span class="cai-wave" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q5 3 10 9 T20 9 T30 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q5 15 10 9 T20 9 T30 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
+					<span class="ui-serif font-medium text-[#2A2420] truncate cc-shimmer">{{ (decisionForming && !autoBuilding) ? 'Reading the result… forming the decision' : 'Building a dashboard from your data…' }}</span>
+					<span class="cai-wave cai-flip" aria-hidden="true"><svg viewBox="0 0 40 18" preserveAspectRatio="none"><path class="wv wv1" d="M0 9 Q5 3 10 9 T20 9 T30 9 T40 9" stroke="#D67037"/><path class="wv wv2" d="M0 9 Q5 15 10 9 T20 9 T30 9 T40 9" stroke="#C2541E" style="opacity:.55"/></svg></span>
+					<span class="ml-auto flex-none text-[11px] text-[#9A8678]">auto · one-click</span>
 				</div>
 			</div>
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-4 max-w-2xl']">
@@ -1045,6 +1063,7 @@
 					<ChatSummary
 							:reportId="report_id"
 						:latestAnswer="latestAnswer"
+						:messages="messages"
 						:scheduledPrompts="scheduledPrompts"
 						:artifactList="reportArtifacts"
 						:queryList="queryList"
@@ -1054,6 +1073,12 @@
 						:pendingBuildId="pendingTrainingBuild?.id || null"
 						:pendingTrainingBuild="pendingTrainingBuild"
 						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
+						:sessionSummary="sessionSummary"
+						:sessionSummaryStale="sessionSummaryStale"
+						:sessionSummaryLoading="sessionSummaryLoading"
+						:senseMaking="latestSenseMaking"
+						:senseMakingPending="decisionForming"
+						@refreshSessionSummary="onRefreshSessionSummary"
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
@@ -1443,6 +1468,7 @@ import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
+import DecisionCard from '~/components/DecisionCard.vue'
 import SlidesPanel from '~/components/report/SlidesPanel.vue'
 import ExcelPanel from '~/components/report/ExcelPanel.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
@@ -2842,6 +2868,51 @@ const runActive = computed<boolean>(
 	() => isStreaming.value || runStatus.value === 'in_progress'
 )
 
+// SESSION SUMMARY (Outputs card) — loaded from reports/{id}/session-summary and
+// rebuilt on demand via the refresh button forwarded by ChatSummary.
+const sessionSummary = ref<Record<string, any> | null>(null)
+const sessionSummaryStale = ref(false)
+const sessionSummaryLoading = ref(false)
+async function loadSessionSummary() {
+	try {
+		const { data, error } = await useMyFetch(`reports/${report_id}/session-summary`, { method: 'GET' })
+		if (error.value) return
+		if (data.value) {
+			sessionSummary.value = (data.value as any).summary ?? null
+			sessionSummaryStale.value = !!(data.value as any).stale
+		}
+	} catch { /* fail-soft */ }
+}
+async function onRefreshSessionSummary() {
+	sessionSummaryLoading.value = true
+	try {
+		const { data, error } = await useMyFetch(`reports/${report_id}/session-summary`, { method: 'POST' })
+		if (error.value) return
+		if (data.value) {
+			sessionSummary.value = (data.value as any).summary ?? null
+			sessionSummaryStale.value = !!(data.value as any).stale
+		}
+	} catch { /* fail-soft */ } finally {
+		sessionSummaryLoading.value = false
+	}
+}
+
+// DECISION FORMING — the backend emits SSE `sense_making.pending` right before it
+// runs sense-making (post-answer), and clears at completion.finished/error. Drives
+// the dock strip "forming the decision" state + the Outputs DECISION skeleton.
+const decisionForming = ref(false)
+
+// The most recent answer's sense_making object (walk messages from the end), so the
+// Outputs panel can render the live DECISION card.
+const latestSenseMaking = computed<Record<string, any> | null>(() => {
+	const msgs = messages.value || []
+	for (let i = msgs.length - 1; i >= 0; i--) {
+		const m: any = msgs[i]
+		if (m && m.role === 'system' && m.sense_making) return m.sense_making
+	}
+	return null
+})
+
 // AUTO-ARTIFACT (HYBRID_AUTO_ARTIFACT): when a chat turn produced a dataset but
 // no artifact, the backend auto-builds a dashboard in the background (~2min).
 // Poll the artifacts list so it appears without a manual refresh + surface a
@@ -3852,6 +3923,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'sense_making.pending':
+			// Backend is about to run post-answer sense-making — show the
+			// "forming the decision" strip + Outputs DECISION skeleton.
+			decisionForming.value = true
+			break
+
 		case 'decision.partial':
 		case 'decision.final':
 			// Update plan decision information
@@ -3904,6 +3981,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// is a real terminal signal. Always leave the run in a terminal status so the
 			// "Thinking…" dots (gated on status==='in_progress') clear here even if the
 			// payload omits an explicit status — don't wait on [DONE]/watchdog for the spinner.
+			// Turn is fully done — clear the "forming the decision" strip.
+			decisionForming.value = false
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : 'success'
 			if (completionStatus) {
 				if (sysMessage.status !== 'error' && sysMessage.status !== 'stopped') {
@@ -3941,6 +4020,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'completion.error':
 			// Dedicated error event; ensure UI flips to error state and capture the message
+			decisionForming.value = false
 			sysMessage.status = 'error'
 			isCompletionInProgress.value = false
 			if (payload?.error) {
@@ -4050,6 +4130,11 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				status: status,
 				prompt: c.prompt,
 				completion: c.completion,
+				// sense_making + auto_model are promoted to TOP-LEVEL API fields
+				// (completion JSON itself comes back null) — carry them or the
+				// DECISION card + auto-model chip can never render.
+				sense_making: (c as any).sense_making || null,
+				auto_model: (c as any).auto_model || null,
 				served_by: c.served_by || null,
 				completion_blocks: blocks,
 				created_at: c.created_at,
@@ -4148,6 +4233,8 @@ async function loadPreviousCompletions() {
                 status,
                 prompt: c.prompt,
                 completion: c.completion,
+                sense_making: (c as any).sense_making || null,
+                auto_model: (c as any).auto_model || null,
                 served_by: c.served_by || null,
                 completion_blocks: blocks,
                 created_at: c.created_at,
@@ -5066,7 +5153,8 @@ onMounted(async () => {
 		loadActiveLayoutHasBlocks(),
 		loadScheduledPrompts(),
 		loadReportSummary(),
-		loadReportInstructions()
+		loadReportInstructions(),
+		loadSessionSummary()
 	])
 	const slowLoads = loadCompletions()
 	connectWebhookSocket()
@@ -5206,15 +5294,16 @@ onMounted(async () => {
 	border-color: #C08A2D;
 }
 
-/* Running "wave · what's happening · wave" indicator. */
-.cai-wave { width: 30px; height: 16px; display: inline-block; flex: none; }
+/* Running "wave · what's happening · wave" indicator (Claude-style). */
+.cai-wave { width: 42px; height: 20px; display: inline-block; flex: none; }
 .cai-wave svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .cai-wave.cai-flip { transform: scaleX(-1); }
-.cai-wave .wv { fill: none; stroke-width: 2.2; stroke-linecap: round; transform-origin: center; }
-.cai-wave .wv1 { animation: caiWob 1.5s ease-in-out infinite; }
-.cai-wave .wv2 { animation: caiWob 1.5s ease-in-out infinite 0.25s; }
-@keyframes caiWob { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
-@media (prefers-reduced-motion: reduce) { .cai-wave .wv { animation: none; } }
+.cai-wave .wv { fill: none; stroke-width: 2.6; stroke-linecap: round; transform-origin: center; }
+.cai-wave .wv1 { animation: caiWob 1.3s ease-in-out infinite; }
+.cai-wave .wv2 { animation: caiWob 1.3s ease-in-out infinite 0.32s; }
+/* taller pulse so it reads as a live wave, not a flat dash */
+@keyframes caiWob { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1.15); } }
+@media (prefers-reduced-motion: reduce) { .cai-wave .wv { animation: none; transform: scaleY(0.85); } }
 
 /* Phase 3 — shimmer the "Working · 0:42" header text while the run streams. */
 @keyframes ccShimmer { 0% { background-position: -120% 0; } 100% { background-position: 120% 0; } }

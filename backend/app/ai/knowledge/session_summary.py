@@ -370,6 +370,8 @@ async def build_session_summary(db, *, report, organization, user, model) -> Opt
         # Provenance marker — the route stamps ``generated_at`` (ISO string).
         result["generated_from"] = {
             "completion_count": completion_count,
+            # alias for the FE card's scope sub-header (reads `turn_count`)
+            "turn_count": completion_count,
             "last_completion_id": last_completion_id,
             "generated_at": None,
         }

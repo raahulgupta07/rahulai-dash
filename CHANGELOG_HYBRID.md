@@ -9,6 +9,52 @@ Bullet rules (this is the user-facing "What's new" feed):
     Hidden from the popover; shown collapsed on the full /changelog page only.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.59.0 — Session Summary works + "forming the decision" live status  (2026-06-28)
+- **Generate summary** now works — the Outputs "Session Summary" card builds a synthesis across every turn.
+- While the agent forms the DECISION after an answer, a live status shows at the bottom of the chat input
+  ("Reading the result… forming the decision") so you know it's still working.
+  - Session Summary was never wired: `reports/[id]/index.vue` mounted `<ChatSummary>` without the
+    `sessionSummary` / `sessionSummaryStale` / `sessionSummaryLoading` props or the `@refreshSessionSummary`
+    handler. Added refs + `loadSessionSummary()` (GET) + `onRefreshSessionSummary()` (POST
+    `reports/{id}/session-summary`) + both mounts now pass all 4. Backend route + builder already worked.
+  - Decision strip: handle SSE `sense_making.pending` → `decisionForming=true`; clear on
+    `completion.finished` / `completion.error`. Composer dock strip gate `autoBuilding || decisionForming`
+    with dynamic label; reused existing `.cai-wave` + `.cc-shimmer`. Also pass `:senseMakingPending` +
+    `:senseMaking="latestSenseMaking"` to ChatSummary so the Outputs DECISION skeleton shows too.
+  - `session_summary.py` `generated_from` now also emits `turn_count` (alias of `completion_count`) so the
+    card's scope sub-header populates.
+
+## v1.58.4 — Stop auto-dashboards + DECISION on small comparisons  (2026-06-28)
+- The agent no longer auto-builds a dashboard after a plain data question — you only get one when you ask.
+- The DECISION card now shows on small side-by-side comparisons (e.g. 2 sites), not just big datasets.
+  - `HYBRID_AUTO_ARTIFACT` turned OFF for org (DB override). `schedule_auto_artifact` was firing on every
+    data turn → unrequested "Generating dashboard… 6 widgets". Reversible: flip the override back to true.
+  - `sense_maker.py:410-413` skip gate loosened: was `len(signals)==0 and all df < 5 rows → None` (killed
+    2-row comparisons before the LLM call). Now skips only `len(signals)==0 and all df ≤ 1 row` (true scalars).
+    A 2+ row numeric comparison now reaches the LLM + grounding → DECISION card builds.
+
+## v1.58.3 — Fix: the DECISION card is back (chat + Outputs)  (2026-06-28)
+- The **DECISION** summary card now shows again under each answer in the chat — and in the Outputs panel.
+- It went missing when the chat view was rebuilt; the data was there, the card just wasn't being drawn.
+  - ROOT CAUSE: `sense_making` (and `auto_model`) come back as **top-level** completion fields (the
+    `completion` JSON field itself is null). The message-build in `reports/[id]/index.vue` only copied
+    `completion` → both fields were dropped → OutputsFeed `sys.sense_making` undefined → no DECISION
+    anywhere; and the rewritten chat thread (off `CompletionMessageComponent`) never re-mounted DecisionCard.
+  - FIX: carry `sense_making` + `auto_model` in BOTH message-build returns; import + mount `<DecisionCard
+    :sense="m.sense_making">` inline after the answer (gated `role==='system' && !in_progress`).
+  - NOTE: still data-gated — `sense_maker` returns null when no finding grounds against the rows
+    (`sense_maker.py` grounding filter); clarify/inspect-only turns produce no card by design.
+
+## v1.58.2 — Fix: Outputs panel said "No items yet" despite built dashboards  (2026-06-28)
+- **Your dashboards and slides now show up in the Outputs panel.** Reports that had already built a dashboard or deck were wrongly showing "No items yet" — they now list every turn's answer, decision and artifact again.
+  - Root cause: the per-turn `OutputsFeed` builds its turns from the chat `messages`, but NEITHER `ChatSummary` mount (mobile + desktop) in `pages/reports/[id]/index.vue` passed `:messages` — so the feed always had 0 turns and showed the empty state, even when `/artifacts/report/{id}` returned completed `page`/`slides` artifacts (artifacts only render inside a turn block). Added `:messages="messages"` to both mounts. (`ChatSummary` already declared the prop and forwarded it to `OutputsFeed`.)
+
+## v1.58.1 — One thinking indicator, bigger Claude-style wave  (2026-06-28)
+- **No more double "Working on it…".** The progress indicator now shows in one place while the agent runs (in the conversation), not twice. The bottom strip is reserved for the auto-build step afterwards.
+- **The thinking wave is clearer.** Bigger, denser, livelier wave + the step text gently shimmers — reads as a live "thinking" state, not a flat dash.
+  - FE `pages/reports/[id]/index.vue`: dock status strip gated on `autoBuilding` only (removed the `runActive` branch that duplicated the inline thread indicator). Wave path → 4-hump denser curve, `.cai-wave` 30×16→42×20, stroke 2.2→2.6, pulse 0.3–1→0.35–1.15, 1.3s; live-stage text gets `cc-shimmer`.
+  - Note: a turn that ends in a clarifying question (e.g. ambiguous "this data" with multiple active sources) runs no `create_data`, so it shows "Working on it…" (no step to name) and produces no artifact — expected, not a bug.
+
 ## v1.58.0 — Data answers auto-build a dashboard  (2026-06-28)
 - **Ask for data, get a dashboard — automatically.** When a chat turn pulls a dataset but doesn't make any visual, the agent now builds a dashboard for you in the background, so the Outputs panel fills in instead of staying empty. The dock shows "Building a dashboard from your data…" and the dashboard appears on its own.
   - BE flag `HYBRID_AUTO_ARTIFACT` (default OFF; ON for org 1a073f60). New `services/auto_artifact.py`: `schedule_auto_artifact(...)` fires a background `asyncio` task (strong-ref'd) after a successful chat turn that ran `create_data` (≥1 success Step) AND has zero artifacts; reuses `report_slides._generate_artifact(mode='page')` in a fresh detached session (reload by PK), fully fail-soft, idempotent (one build per report). Hooked in `completion_service.py` non-stream (~:920) + stream (~:2404) after the answer + sense_making commit. OFF = byte-identical.

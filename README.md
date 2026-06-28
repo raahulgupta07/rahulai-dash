@@ -287,10 +287,14 @@ git clone <repo> && cd "CityAgent Analytics"
 # 2. Create .env from the template
 cp .env.example .env
 
-# 3. Set a Fernet encryption key (REQUIRED — encrypts every stored OpenRouter/SMTP secret)
+# 3. (OPTIONAL) Fernet encryption key — encrypts every stored OpenRouter/SMTP secret.
+#   You can SKIP this: if DASH_ENCRYPTION_KEY is empty, start.sh auto-generates one on first
+#   boot and persists it to the durable ca_uploads volume (/app/backend/uploads/.dash_encryption.key),
+#   so it stays stable across restarts/rebuilds. Set it explicitly ONLY if you need a known key
+#   (multi-host, or restoring a DB dump taken on another box):
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-#   -> paste the output into .env as:  DASH_ENCRYPTION_KEY=<that value>
-#   KEEP IT FOREVER. Changing it later orphans all stored secrets.
+#   -> paste into .env as:  DASH_ENCRYPTION_KEY=<that value>   (KEEP IT FOREVER — changing it orphans all secrets)
+#   ⚠ Don't `docker compose down -v` — that drops the volume holding the auto-generated key.
 
 # 4. (optional) edit .env:
 #    APP_PORT=3007 / POSTGRES_PORT=5439 / REDIS_PORT=6399   (host ports)
@@ -346,7 +350,7 @@ docker restart ca-app                                             # restart KEEP
 docker cp VERSION_HYBRID        ca-app:/app/VERSION_HYBRID         # version files are read per-request (What's-new bell)
 docker cp CHANGELOG_HYBRID.md   ca-app:/app/CHANGELOG_HYBRID.md
 docker commit ca-app cityagent-analytics:dev                      # bake the running container into the image
-docker tag    cityagent-analytics:dev cityagent-analytics:v1.58.0 # version tag = rollback point
+docker tag    cityagent-analytics:dev cityagent-analytics:v1.59.0 # version tag = rollback point
 ```
 
 ### Notes
