@@ -148,6 +148,7 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_AUTO_EVALS": {"label": "Auto Eval Cases", "role": "review", "category": "Ingest", "status": "stable"},
     "HYBRID_MERGE_SAME_SCHEMA": {"label": "Merge Same-Schema Uploads", "role": "user", "category": "Ingest", "status": "stable"},
     "HYBRID_SMART_HEADER": {"label": "Smart Header + Glossary", "role": "user", "category": "Ingest", "status": "stable"},
+    "HYBRID_INGEST_BRAIN": {"label": "Universal Ingest Brain (F09)", "role": "user", "category": "Ingest", "status": "experimental", "note": "Deep file understanding (messy Excel/PDF/Word/image) → one org brain. Phased; default OFF."},
 
     # --- Learning / Brain -------------------------------------------------
     "HYBRID_BRAIN_READ": {"label": "Brain Read (inject memories)", "role": "agent", "category": "Learning", "status": "stable"},
@@ -697,6 +698,17 @@ class HybridFlags:
         return _bool("HYBRID_SMART_HEADER", True)
 
     @property
+    def INGEST_BRAIN(self) -> bool:
+        # ROADMAP F09: Universal Ingest Brain. A 6-stage pipeline behind the
+        # existing from-file ingest — DETECT → EXTRACT (messy Excel regions /
+        # merged cells / multi-row headers; PDF/Word/image GPU-free) → PROFILE
+        # (per-column ColumnProfile) → UNDERSTAND → UNIFY (cross-source joins)
+        # → STORE+LEARN into one org-level brain (review-gated). Built in
+        # phases; every stage fail-soft and preview-before-commit. With this
+        # OFF the ingest path is byte-identical to today. Default OFF.
+        return _bool("HYBRID_INGEST_BRAIN", False)
+
+    @property
     def RESULT_CACHE(self) -> bool:
         # Task 7: deterministic result cache. Keyed by (normalized question text +
         # the report's per-source row-count watermark signature). On a HIT with an
@@ -839,6 +851,7 @@ class HybridFlags:
             "QUERY_LEARNING": self.QUERY_LEARNING,
             "MERGE_SAME_SCHEMA": self.MERGE_SAME_SCHEMA,
             "SMART_HEADER": self.SMART_HEADER,
+            "INGEST_BRAIN": self.INGEST_BRAIN,
             "CONTEXT_COMPACT": self.CONTEXT_COMPACT,
             "SKILL_OPTIMIZE": self.SKILL_OPTIMIZE,
             "SUBAGENTS": self.SUBAGENTS,
