@@ -75,12 +75,32 @@ async def ingest_brain_preview(
     started = time.monotonic()
     suffix = os.path.splitext(file.filename or "")[1] or ".bin"
     tmp_path = ""
+    # Fetch the org's already-known columns so UNIFY can propose cross-source
+    # joins (fail-soft: any error → no existing columns → no joins, never 500).
+    existing_columns = []
+    try:
+        rows = (await db.execute(
+            select(ColumnProfileModel).where(
+                ColumnProfileModel.organization_id == str(organization.id),
+                ColumnProfileModel.deleted_at.is_(None),
+            ).limit(2000)
+        )).scalars().all()
+        for r in rows:
+            existing_columns.append({
+                "ref": f"{r.table_name or 'table'}.{r.column_name}",
+                "normalized_name": r.normalized_name or "",
+                "semantic_role": r.semantic_role or "category",
+                "sample_values": r.sample_values or [],
+            })
+    except Exception:  # noqa: BLE001
+        logger.exception("ingest-brain: existing-columns fetch failed (continuing without joins)")
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(await file.read())
             tmp_path = tmp.name
         result = await run_pipeline(tmp_path, file.filename or "upload",
-                                    organization=organization, db=db)
+                                    organization=organization, db=db,
+                                    existing_columns=existing_columns)
     except Exception as exc:  # noqa: BLE001 — fail-soft, never 500 the upload UX
         logger.exception("ingest-brain preview failed")
         return {"ok": False, "error": str(exc)[:300], "tables": [], "profiles": []}

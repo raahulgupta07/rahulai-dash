@@ -89,12 +89,29 @@ def profile(tables: List[RawTable]) -> List[ColumnProfile]:
 
 def understand(profiles: List[ColumnProfile], *, llm_inference=None) -> List[ColumnProfile]:
     """UNDERSTAND — LLM names each column meaning + synonyms (pending). [P3]"""
-    return profiles
+    try:
+        from app.services.ingest_brain.understand import understand_columns
+        return understand_columns(profiles, llm_inference=llm_inference)
+    except Exception:  # noqa: BLE001
+        logger.exception("ingest_brain.understand failed")
+        return profiles
 
 
-def unify(profiles: List[ColumnProfile], *, organization=None, db=None) -> List[JoinCandidate]:
-    """UNIFY — fuzzy-match columns across all org sources → join candidates. [P3]"""
-    return []
+def unify(profiles: List[ColumnProfile], *, existing_columns=None) -> List[JoinCandidate]:
+    """UNIFY — fuzzy-match this file's columns against the org's existing columns.
+
+    ``existing_columns`` is the list of already-known org columns (the caller
+    fetches them from the column_profiles table). Empty/None → no joins (the
+    common first-file case). Pure + fail-soft. [P3]
+    """
+    try:
+        if not existing_columns:
+            return []
+        from app.services.ingest_brain.unify import unify_columns
+        return unify_columns(profiles, existing_columns)
+    except Exception:  # noqa: BLE001
+        logger.exception("ingest_brain.unify failed")
+        return []
 
 
 def build_preview(result: IngestResult) -> PreviewDoc:
@@ -117,13 +134,16 @@ def build_preview(result: IngestResult) -> PreviewDoc:
 
 # --- orchestrator -----------------------------------------------------------
 async def run_pipeline(path: str, filename: str, *, organization=None, db=None,
-                       llm_inference=None, vision_infer=None) -> IngestResult:
+                       llm_inference=None, vision_infer=None,
+                       existing_columns=None) -> IngestResult:
     """Run DETECT→EXTRACT→PROFILE→UNDERSTAND→UNIFY and return a pre-commit result.
 
     STORE is intentionally separate (commit happens only after preview confirm).
     Returns ok=False, error="disabled" when the flag is OFF. NEVER raises.
     ``vision_infer(image_bytes, prompt)`` (optional) routes scanned/image pages
     through the org's OpenRouter vision model; absent → those land as a note.
+    ``existing_columns`` (optional) = the org's already-known columns for the
+    UNIFY cross-source join match (the route fetches them from column_profiles).
     """
     from app.settings.hybrid_flags import flags
 
@@ -136,7 +156,7 @@ async def run_pipeline(path: str, filename: str, *, organization=None, db=None,
         result.tables, result.prose = extract(result.source, vision_infer=vision_infer)
         result.profiles = profile(result.tables)
         result.profiles = understand(result.profiles, llm_inference=llm_inference)
-        result.join_candidates = unify(result.profiles, organization=organization, db=db)
+        result.join_candidates = unify(result.profiles, existing_columns=existing_columns)
         result.preview = build_preview(result)
         result.ok = True
     except Exception as exc:  # noqa: BLE001 — fail-soft per voice
