@@ -134,6 +134,7 @@ from app.routes import (
     datasource_columns,
     compliance_scan,
     column_profile,
+    smart_upload,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -304,6 +305,7 @@ app.include_router(studio_packs.router, prefix="/api")  # P5: promote-to-org (ga
 app.include_router(studio_examples.router, prefix="/api")
 app.include_router(studio_metrics.router, prefix="/api")  # Feature 3: KPI metric registry (gated HYBRID_METRICS_CATALOG)
 app.include_router(studio_autoconfigure.router, prefix="/api")  # Feature 1: auto-configure-from-doc (gated HYBRID_AUTOMAP)
+app.include_router(smart_upload.router, prefix="/api")  # Smart Upload router: classify + apply file routes (gated HYBRID_SMART_UPLOAD)
 app.include_router(datasource_columns.router, prefix="/api")  # Feature 2: column-description editor
 app.include_router(compliance_scan.router, prefix="/api")  # Feature 4: compliance scan (gated HYBRID_COMPLIANCE_GATE)
 app.include_router(column_profile.router, prefix="/api")  # Batch B: column intelligence profiler (gated HYBRID_COLUMN_INTEL)
