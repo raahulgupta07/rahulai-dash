@@ -58,6 +58,23 @@ def _disabled():
     return {"disabled": True, "feature": "smart_dashboard"}
 
 
+async def _resolve_clarify(db, organization, steer: str) -> dict:
+    """Build the ONE clarify chip. Reuses the existing ambiguity gate for a
+    sharper question/options when that flag is on; else falls back to the static
+    pair. NEVER raises — clarify is best-effort."""
+    try:
+        from app.ai.clarify.ambiguity_gate import detect_ambiguity
+
+        res = await detect_ambiguity(db, organization=organization, question=steer or "")
+        if isinstance(res, dict) and res.get("ambiguous"):
+            q = res.get("clarifying_question") or _CLARIFY_QUESTION
+            opts = res.get("suggested_options") or _CLARIFY_OPTIONS
+            return {"question": q, "options": list(opts)[:4]}
+    except Exception:  # noqa: BLE001 — gate off / any error → static fallback
+        logger.debug("smart-dashboard: ambiguity gate unavailable, using static clarify")
+    return {"question": _CLARIFY_QUESTION, "options": _CLARIFY_OPTIONS}
+
+
 def _text_of(blob) -> str:
     """Completion.prompt / .completion are JSON — pull a content string out."""
     if blob is None:
@@ -174,6 +191,7 @@ async def smart_dashboard_context(
     # Resolvable = we can build straight away: the turn already produced charts,
     # OR we have a prefill/question to steer from. Clarify ONLY when totally blind.
     resolvable = bool(has_charts or prefill)
+    clarify = None if resolvable else await _resolve_clarify(db, organization, prefill)
 
     return {
         "ok": True,
@@ -183,8 +201,7 @@ async def smart_dashboard_context(
         "has_charts": has_charts,
         "resolvable": resolvable,
         "needs_clarification": not resolvable,
-        "clarify": None if resolvable else {
-            "question": _CLARIFY_QUESTION, "options": _CLARIFY_OPTIONS},
+        "clarify": clarify,
         "model": "auto",              # reuse the chat Auto router
     }
 
@@ -222,7 +239,7 @@ async def smart_dashboard_generate(
         prefill = _prefill(turn)
         if not prefill:
             return {"ok": True, "needs_clarification": True,
-                    "clarify": {"question": _CLARIFY_QUESTION, "options": _CLARIFY_OPTIONS}}
+                    "clarify": await _resolve_clarify(db, organization, "")}
         steer = prefill   # fall back to the chat question as the steer
 
     # No charts but we DO have a steer → the turn never produced a dataset; tell
