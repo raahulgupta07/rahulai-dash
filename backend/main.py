@@ -134,6 +134,7 @@ from app.routes import (
     datasource_columns,
     compliance_scan,
     column_profile,
+    smart_dashboard,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -307,6 +308,7 @@ app.include_router(studio_autoconfigure.router, prefix="/api")  # Feature 1: aut
 app.include_router(datasource_columns.router, prefix="/api")  # Feature 2: column-description editor
 app.include_router(compliance_scan.router, prefix="/api")  # Feature 4: compliance scan (gated HYBRID_COMPLIANCE_GATE)
 app.include_router(column_profile.router, prefix="/api")  # Batch B: column intelligence profiler (gated HYBRID_COLUMN_INTEL)
+app.include_router(smart_dashboard.router, prefix="/api")  # Smart Dashboard Build (sidecar, gated HYBRID_SMART_DASHBOARD)
 app.include_router(studio_learning.router, prefix="/api")
 app.include_router(build.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
