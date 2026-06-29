@@ -187,3 +187,62 @@ async def smart_dashboard_context(
             "question": _CLARIFY_QUESTION, "options": _CLARIFY_OPTIONS},
         "model": "auto",              # reuse the chat Auto router
     }
+
+
+class SmartGenerateRequest(BaseModel):
+    prompt: Optional[str] = ""        # user's steer (or the prefill, or a clarify pick)
+    size: Optional[str] = ""          # compact | full
+    depth: Optional[str] = ""         # exec | analyst
+
+
+@router.post("/reports/{report_id}/dashboard/smart-generate")
+async def smart_dashboard_generate(
+    report_id: str,
+    body: SmartGenerateRequest = ...,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Build the dashboard from the turn's existing charts, steered by the user's
+    prompt + layout preference. If there are no charts AND no signal, return a
+    clarify chip instead of an error."""
+    if not flags.SMART_DASHBOARD:
+        return _disabled()
+
+    report = await _load_report(db, report_id, organization)
+    if report is None:
+        return {"ok": False, "error": "report not found"}
+
+    steer = (body.prompt or "").strip()
+    has_charts = await _has_charts(db, report_id)
+
+    # No charts yet to compose AND no steer → we are blind; ask one chip.
+    if not has_charts and not steer:
+        turn = await _last_turn(db, report_id)
+        prefill = _prefill(turn)
+        if not prefill:
+            return {"ok": True, "needs_clarification": True,
+                    "clarify": {"question": _CLARIFY_QUESTION, "options": _CLARIFY_OPTIONS}}
+        steer = prefill   # fall back to the chat question as the steer
+
+    # No charts but we DO have a steer → the turn never produced a dataset; tell
+    # the FE to ask the agent a data question first (don't fabricate).
+    if not has_charts:
+        return {"ok": False, "needs_data": True,
+                "message": "Ask the agent a data question first so it builds the charts, "
+                           "then generate the dashboard from them."}
+
+    # Build, reusing the proven artifact pipeline with the steer folded in.
+    try:
+        from app.routes.report_slides import _generate_artifact
+
+        result = await _generate_artifact(
+            mode="page", report_id=report_id, current_user=current_user,
+            organization=organization, db=db,
+            steer_prompt=steer, depth=(body.depth or ""), size=(body.size or ""),
+        )
+        return {"ok": True, **result}
+    except Exception as exc:  # noqa: BLE001 — surface a clean message, never a raw 500
+        logger.exception("smart-dashboard generate failed")
+        detail = getattr(exc, "detail", None) or str(exc)
+        return {"ok": False, "error": str(detail)[:300]}
