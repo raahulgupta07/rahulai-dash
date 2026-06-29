@@ -29,6 +29,7 @@ class ProfileV2ColumnItem(BaseModel):
     role: str                              # DIMENSION | STATE | MEASURE | IDENTIFIER | TEMPORAL
     top_values: List[ProfileV2TopValue] = []
     variants_warning: Optional[str] = None
+    normalize_instruction: Optional[str] = None   # VALUE_NORMALIZE canonical guardrail
 
 
 class ProfileV2TableItem(BaseModel):
@@ -102,6 +103,14 @@ class ProfileV2Section(ContextSection):
                     if len(line) > 120:
                         line = line[:119] + "…"
                     lines.append(line)
+
+                    # VALUE_NORMALIZE: full canonical guardrail on its own line
+                    # (untruncated so the map survives for the SQL planner).
+                    if c.normalize_instruction:
+                        instr = c.normalize_instruction
+                        if len(instr) > 240:
+                            instr = instr[:239] + "…"
+                        lines.append(f"        ↳ {instr}")
 
         lines.append("</profile_v2>")
         return "\n".join(lines)

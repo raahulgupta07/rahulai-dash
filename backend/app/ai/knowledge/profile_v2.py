@@ -116,6 +116,105 @@ def _detect_variants(values: List[str]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Value normalization → canonical (flags.VALUE_NORMALIZE)
+# ---------------------------------------------------------------------------
+# Detection only: cluster near-duplicate spellings of one real category, pick a
+# canonical winner, and emit a value→canonical map + agent guardrail.  Never
+# rewrites the stored data.
+_NORM_MAX_DISTINCT = 200   # only normalize LOW-cardinality dimensions
+_MAX_CLUSTERS      = 10    # cap clusters reported per column
+_MAX_MAP_ENTRIES   = 50    # cap total variant→canonical entries per column
+_INSTR_PAIR_CAP    = 8     # how many explicit pairs to spell out in the instruction
+
+
+def _pick_canonical(members: List[tuple]) -> str:
+    """members = [(value, count), ...].  Canonical = most frequent spelling,
+    tie-break by longest, then lexically smallest."""
+    return sorted(
+        members,
+        key=lambda m: (-int(m[1] or 0), -len(str(m[0])), str(m[0])),
+    )[0][0]
+
+
+def _cluster_variants(top_values: List[Dict[str, Any]], distinct: int):
+    """Cluster near-duplicate spellings inside a low-cardinality dimension.
+
+    Returns ``(canonical_map, summary, instruction)`` where ``canonical_map`` is
+    ``{variant_value: canonical_value}`` for the NON-canonical members of every
+    cluster of >=2 spellings, or ``({}, "", "")`` when nothing collides.
+
+    Conservative: bails on high-cardinality columns; only clusters values whose
+    normalized form TRULY collides; caps clusters + map size.  Detection only —
+    never mutates stored data.
+    """
+    try:
+        # High-cardinality columns are not safe to auto-merge.
+        if distinct and distinct > _NORM_MAX_DISTINCT:
+            return {}, "", ""
+
+        # Group (value, count) by normalized key.
+        groups: Dict[str, List[tuple]] = {}
+        for tv in top_values or []:
+            if not isinstance(tv, dict):
+                continue
+            val = tv.get("value")
+            if val is None:
+                continue
+            sval = str(val)
+            key = _normalize(sval)
+            if not key:
+                continue
+            try:
+                cnt = int(tv.get("count")) if tv.get("count") is not None else 0
+            except Exception:
+                cnt = 0
+            groups.setdefault(key, []).append((sval, cnt))
+
+        canonical_map: Dict[str, str] = {}
+        summaries: List[str] = []
+        clusters_used = 0
+
+        for _key, members in groups.items():
+            distinct_spellings = {m[0] for m in members}
+            if len(distinct_spellings) < 2:          # need >=2 real spellings
+                continue
+            if clusters_used >= _MAX_CLUSTERS:
+                break
+            canonical = _pick_canonical(members)
+            variants = [v for v in sorted(distinct_spellings) if v != canonical]
+            if not variants:
+                continue
+            for v in variants:
+                if len(canonical_map) >= _MAX_MAP_ENTRIES:
+                    break
+                canonical_map[v] = canonical
+            clusters_used += 1
+            shown = variants[0]
+            more = f" (+{len(variants) - 1} more)" if len(variants) > 1 else ""
+            summaries.append(
+                f"'{shown}'{more} → '{canonical}' "
+                f"({len(distinct_spellings)} spellings merged)"
+            )
+
+        if not canonical_map:
+            return {}, "", ""
+
+        summary = "; ".join(summaries[:_MAX_CLUSTERS])
+        pairs = "; ".join(
+            f"'{v}'→'{c}'" for v, c in list(canonical_map.items())[:_INSTR_PAIR_CAP]
+        )
+        instruction = (
+            "spelling variants — treat as the same category; map "
+            f"{pairs}. Normalize (CASE/REPLACE, or GROUP BY a normalized "
+            "expression) BEFORE aggregating, else per-category totals scatter."
+        )
+        return canonical_map, summary, instruction
+    except Exception as e:
+        logger.debug("profile_v2 _cluster_variants: %s", e)
+        return {}, "", ""
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -164,6 +263,15 @@ def _profile_table_v2_impl(table, df_sample) -> dict:
         return {}
 
     result: Dict[str, Any] = {}
+    table_canonical_map: Dict[str, Dict[str, str]] = {}
+
+    # Value-normalization is a separate, additive sub-feature gated by its own
+    # flag; PROFILE_V2 behavior is byte-identical when VALUE_NORMALIZE is OFF.
+    try:
+        from app.settings.hybrid_flags import flags as _flags
+        _value_normalize = bool(_flags.VALUE_NORMALIZE)
+    except Exception:
+        _value_normalize = False
 
     for cs in col_stats:
         col_name = cs.get("name", "")
@@ -188,13 +296,28 @@ def _profile_table_v2_impl(table, df_sample) -> dict:
             warn = _detect_variants(raw_vals)
             if warn:
                 entry["variants_warning"] = warn
+
+            # VALUE_NORMALIZE: cluster spellings → canonical + map + guardrail.
+            if _value_normalize:
+                cmap, csummary, cinstr = _cluster_variants(
+                    cs["top_values"], distinct
+                )
+                if cmap:
+                    entry["value_canonical_map"] = cmap
+                    entry["value_canonical_summary"] = csummary
+                    entry["normalize_instruction"] = cinstr
+                    # Route an actionable note through the EXISTING warning
+                    # channel so it surfaces to the agent with no other change;
+                    # the full instruction rides on normalize_instruction.
+                    entry["variants_warning"] = csummary
+                    table_canonical_map[col_name] = cmap
         else:
             entry["top_values"] = []
 
         result[col_name] = entry
 
-    # Persist into table.metadata_json['profile_v2']
-    _persist(table, result)
+    # Persist into table.metadata_json['profile_v2'] (+ value_canonical_map).
+    _persist(table, result, table_canonical_map)
 
     return result
 
@@ -320,8 +443,13 @@ def _jsonable(v):
         return str(v)
 
 
-def _persist(table, result: dict) -> None:
+def _persist(table, result: dict, value_canonical_map: dict = None) -> None:
     """Merge result into table.metadata_json['profile_v2'] in place.
+
+    When ``value_canonical_map`` is non-empty (VALUE_NORMALIZE ON) it is also
+    written to ``metadata_json['value_canonical_map']`` = ``{column: {variant:
+    canonical}}`` so SQL builders can normalize before GROUP BY.  When empty the
+    key is left untouched → PROFILE_V2-only behavior is unchanged.
 
     Does NOT open a DB session or commit — caller owns the session lifecycle.
     We mutate table.metadata_json so SQLAlchemy's change-tracking sees the
@@ -332,6 +460,8 @@ def _persist(table, result: dict) -> None:
         meta = table.metadata_json if isinstance(table.metadata_json, dict) else {}
         meta = dict(meta)
         meta["profile_v2"] = result
+        if value_canonical_map:
+            meta["value_canonical_map"] = value_canonical_map
         table.metadata_json = meta
         try:
             flag_modified(table, "metadata_json")

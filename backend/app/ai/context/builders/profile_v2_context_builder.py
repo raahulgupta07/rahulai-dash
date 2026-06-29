@@ -109,6 +109,7 @@ class ProfileV2ContextBuilder:
                         role=role,
                         top_values=tv_items,
                         variants_warning=info.get("variants_warning") or None,
+                        normalize_instruction=info.get("normalize_instruction") or None,
                     )
                 )
 

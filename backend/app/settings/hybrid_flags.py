@@ -133,6 +133,9 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_RICH_REPORT_EMAIL": {"label": "Rich Report Emails", "role": "agent", "category": "Agents & Access", "status": "beta", "note": "Render scheduled/automated report emails from structured results (clean table + sanitized insights + dashboard image/PDF) instead of dumping the raw agent chat. OFF = legacy raw-content email."},
     "HYBRID_ONECLICK_ARTIFACTS": {"label": "One-click Dashboard / Slides / Excel", "role": "user", "category": "Agents & Access", "status": "beta", "note": "On a report's right panel, turns the empty Dashboard/Slides/Excel states into one-click builders: 'Generate dashboard' (real page artifact), 'Generate slide deck' (python-pptx deck + previews + .pptx) from the report's existing charts, and an auto-filled Excel workbook. Reuses the chat create_artifact pipeline."},
     "HYBRID_AUTO_ARTIFACT": {"label": "Auto-build Dashboard from chat", "role": "user", "category": "Agents & Access", "status": "experimental", "note": "When a chat turn produces a dataset (the agent ran create_data → ≥1 chart) but makes NO artifact, automatically build a dashboard (page artifact) in the background so the Outputs panel isn't empty. Reuses the one-click create_artifact pipeline. Idempotent (only when the report has zero artifacts) + fully fail-soft. Default OFF."},
+    "HYBRID_CROSS_SOURCE_UNIFY": {"label": "Cross-Source Unify", "role": "agent", "category": "Intelligence", "status": "experimental", "note": "At ingest, detect same-shape sibling tables (e.g. 6 monthly files with identical columns) and register a unified UNION ALL view (+ a _period column) so the agent queries across them in one shot. Records a union group + emits an instruction. Fail-soft, no migration. Default OFF."},
+    "HYBRID_DATA_QUALITY": {"label": "Data Quality Scan", "role": "user", "category": "Intelligence", "status": "experimental", "note": "At ingest, scan columns for quality issues (high null %, type-coercion risk, outliers, near-constant) and emit a data_quality guardrail instruction the agent reads. Pure pandas, fail-soft, no migration. Default OFF."},
+    "HYBRID_VALUE_NORMALIZE": {"label": "Value Normalization (canonical)", "role": "agent", "category": "Intelligence", "status": "experimental", "note": "Resolve a canonical value for near-duplicate labels (e.g. 'daily_used__l' vs 'daily_used__l_') and record a value→canonical map so GROUP BY doesn't scatter one category across spellings. Detection only, no data rewrite. Default OFF."},
     "HYBRID_QUOTAS": {"label": "Per-Org Quotas", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_DOMAIN_PACKS": {"label": "Domain Packs (Skills)", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_PACK_ROUTER": {"label": "Pack Router", "role": "agent", "category": "Agents & Access", "status": "stable"},
@@ -337,6 +340,31 @@ class HybridFlags:
         # the report already has any artifact) + fail-soft (never affects the
         # chat response). No agent-loop effect. Default OFF.
         return _bool("HYBRID_AUTO_ARTIFACT", True)
+
+    @property
+    def CROSS_SOURCE_UNIFY(self) -> bool:
+        # At ingest, detect same-shape sibling tables (e.g. 6 monthly files with
+        # identical columns) and register a unified logical view (UNION ALL +
+        # a _period column) so the agent can query across them in one shot,
+        # instead of UNIONing by hand. Records a union group + emits an
+        # instruction. Fail-soft, no migration. Default OFF.
+        return _bool("HYBRID_CROSS_SOURCE_UNIFY", False)
+
+    @property
+    def DATA_QUALITY(self) -> bool:
+        # At ingest, scan columns for quality issues (high null %, type-coercion
+        # risk, outliers, constant/near-constant) and emit a data_quality
+        # guardrail instruction the agent reads. Pure pandas, fail-soft,
+        # no migration. Default OFF.
+        return _bool("HYBRID_DATA_QUALITY", False)
+
+    @property
+    def VALUE_NORMALIZE(self) -> bool:
+        # Extend deep-profile variant detection to resolve a CANONICAL value for
+        # near-duplicate labels (e.g. 'daily_used__l' vs 'daily_used__l_') and
+        # record a value→canonical map so GROUP BY doesn't scatter one real
+        # category across spellings. Detection only (no data rewrite). Default OFF.
+        return _bool("HYBRID_VALUE_NORMALIZE", False)
 
     # --- Slice 1: foundation -------------------------------------------------
     @property
@@ -869,6 +897,9 @@ class HybridFlags:
             "RICH_REPORT_EMAIL": self.RICH_REPORT_EMAIL,
             "ONECLICK_ARTIFACTS": self.ONECLICK_ARTIFACTS,
             "AUTO_ARTIFACT": self.AUTO_ARTIFACT,
+            "CROSS_SOURCE_UNIFY": self.CROSS_SOURCE_UNIFY,
+            "DATA_QUALITY": self.DATA_QUALITY,
+            "VALUE_NORMALIZE": self.VALUE_NORMALIZE,
         }
 
 

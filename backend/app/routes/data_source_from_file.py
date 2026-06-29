@@ -468,6 +468,47 @@ async def create_data_source_from_file(
     except Exception:  # noqa: BLE001
         logger.warning("from-file: glossary routing failed", exc_info=True)
 
+    # ── 4c. Post-ingest enrichment (T4 / T6 / T7) ───────────────────────
+    # All additive + fail-soft; each in its own try/except so one failing can
+    # never affect the others or the upload. T4/T6 are flag-gated; T7 (cosmetic
+    # default-name improvement) is always-on but only acts on auto-derived names.
+    unified_groups: list = []
+    quality_summary: list = []
+    renamed_to: Optional[str] = None
+    try:
+        from app.settings.hybrid_flags import flags as _pi_flags
+        from app.services.ingest import post_ingest
+
+        # T4 — cross-source unify (same-shape monthly siblings).
+        try:
+            if _pi_flags.CROSS_SOURCE_UNIFY:
+                unified_groups = await post_ingest.run_cross_source_unify(
+                    db, organization=organization, data_source=data_source,
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning("from-file: cross-source unify failed", exc_info=True)
+
+        # T6 — data quality scan.
+        try:
+            if _pi_flags.DATA_QUALITY:
+                quality_summary = await post_ingest.run_data_quality_scan(
+                    db, organization=organization, data_source=data_source, file=file,
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning("from-file: data quality scan failed", exc_info=True)
+
+        # T7 — better multi-file naming (only when the name was auto-derived).
+        try:
+            if not (payload.data_source_name or "").strip():
+                renamed_to = await post_ingest.run_better_naming(
+                    db, organization=organization, data_source=data_source,
+                    file=file, dedupe_fn=_dedupe_ds_name,
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning("from-file: better-naming failed", exc_info=True)
+    except Exception:  # noqa: BLE001 - import/setup guard
+        logger.warning("from-file: post-ingest enrichment unavailable", exc_info=True)
+
     # ── 5. Build the response: DataSourceSchema (+ tables[]) ─────────────
     ds_schema = await data_source_service.get_data_source(
         db, str(data_source.id), organization, current_user
@@ -492,4 +533,10 @@ async def create_data_source_from_file(
     ]
     if glossary_routed:
         body["glossary_routed"] = glossary_routed
+    if unified_groups:
+        body["unified_groups"] = unified_groups
+    if quality_summary:
+        body["quality_findings"] = quality_summary
+    if renamed_to:
+        body["renamed_to"] = renamed_to
     return body
