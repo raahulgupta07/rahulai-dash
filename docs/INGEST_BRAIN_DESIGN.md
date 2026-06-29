@@ -5,7 +5,28 @@
 > how they relate. GPU-free (OpenRouter-only). Default OFF behind `HYBRID_INGEST_BRAIN`.
 >
 > Companion: `ROADMAP.md` §2/§3/§9, `docs/CODEBASE_MAP.md` (ingest path), `CLAUDE.md` (landmines).
-> Status: DESIGN (not built). Last updated 2026-06-26.
+> Status: **BUILT P0–P3 on branch `feature/ingest-brain`** (flag `HYBRID_INGEST_BRAIN` OFF, NOT merged,
+> NOT baked). Last updated 2026-06-29.
+>
+> **Built (branch only, additive, sidecar package `services/ingest_brain/`):**
+> - P0 — flag (3-place, OFF) + frozen `contract.py` + `pipeline.py` orchestrator (fail-soft, returns
+>   "disabled" when flag off → ingest byte-identical to today).
+> - P1 — `excel_extract.py` (merged-cell forward-fill, N-tables-per-sheet split, 2-row hierarchical
+>   header flatten, banner skip, sparse-row flag) + `profiler.py` (dtype/unit/null%/cardinality/PII-mask/
+>   role/synonyms) + `column_profiles` table (mig `colprofile1` off head `sessumm1`, PG-guarded) +
+>   `routes/ingest_brain.py` (`POST /api/ingest-brain/preview` + `/profiles/{ds}`, decoupled from
+>   `create_data_source_from_file`) + FE `components/ingest/Preview.vue` (`<IngestPreview>` safety gate).
+> - P2 — `detect.py` (text-layer probe) + `pdf_extract.py` (pdfplumber/camelot-optional, docx, pptx) +
+>   `vision_extract.py` (scanned/image → PyMuPDF PNG → OpenRouter vision callable, hash-cached, page cap).
+> - P3 — `unify.py` (pure cross-source column matcher: name-sim + value-overlap, id/category only) +
+>   `understand.py` (cheap-LLM column meanings/synonyms, grounded, callable-decoupled). Preview surfaces
+>   join candidates from the org's existing `column_profiles`.
+>
+> **Self-tested pure-Python (no docker):** messy workbook → merged-fill span=3, 2 tables/sheet split,
+> `2024 · Q1` hierarchical header, email PII masked; Word table+prose; PDF text-layer+prose;
+> `cust_id ↔ crmC.customer` join @0.87. **NOT yet run inside the live stack** (route + migration + FE need
+> a deploy to verify end-to-end) and the vision callable + ingest-time brain-graph/knowledge-proposer
+> write (STORE auto-learn) are plumbed but not live-wired — that's the remaining P3 tail before any bake.
 
 ---
 
