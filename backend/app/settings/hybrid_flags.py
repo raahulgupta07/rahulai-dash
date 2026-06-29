@@ -133,6 +133,7 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_RICH_REPORT_EMAIL": {"label": "Rich Report Emails", "role": "agent", "category": "Agents & Access", "status": "beta", "note": "Render scheduled/automated report emails from structured results (clean table + sanitized insights + dashboard image/PDF) instead of dumping the raw agent chat. OFF = legacy raw-content email."},
     "HYBRID_ONECLICK_ARTIFACTS": {"label": "One-click Dashboard / Slides / Excel", "role": "user", "category": "Agents & Access", "status": "beta", "note": "On a report's right panel, turns the empty Dashboard/Slides/Excel states into one-click builders: 'Generate dashboard' (real page artifact), 'Generate slide deck' (python-pptx deck + previews + .pptx) from the report's existing charts, and an auto-filled Excel workbook. Reuses the chat create_artifact pipeline."},
     "HYBRID_AUTO_ARTIFACT": {"label": "Auto-build Dashboard from chat", "role": "user", "category": "Agents & Access", "status": "experimental", "note": "When a chat turn produces a dataset (the agent ran create_data → ≥1 chart) but makes NO artifact, automatically build a dashboard (page artifact) in the background so the Outputs panel isn't empty. Reuses the one-click create_artifact pipeline. Idempotent (only when the report has zero artifacts) + fully fail-soft. Default OFF."},
+    "HYBRID_SMART_DASHBOARD": {"label": "Smart Dashboard Build", "role": "user", "category": "Agents & Access", "status": "experimental", "note": "Outputs 'Generate dashboard' becomes a smart builder: auto-prefills the prompt from the chat turn, auto-uses the agent's own bound data sources (no picker), routes the model via Auto, and asks ONE clarifying chip ONLY when there's no usable signal. Reuses create_artifact + ambiguity-gate + sense-making. Default OFF."},
     "HYBRID_QUOTAS": {"label": "Per-Org Quotas", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_DOMAIN_PACKS": {"label": "Domain Packs (Skills)", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_PACK_ROUTER": {"label": "Pack Router", "role": "agent", "category": "Agents & Access", "status": "stable"},
@@ -337,6 +338,17 @@ class HybridFlags:
         # the report already has any artifact) + fail-soft (never affects the
         # chat response). No agent-loop effect. Default OFF.
         return _bool("HYBRID_AUTO_ARTIFACT", True)
+
+    @property
+    def SMART_DASHBOARD(self) -> bool:
+        # Smart Dashboard Build (Outputs → "Generate dashboard"). Auto-prefills the
+        # prompt from the chat turn, auto-resolves the agent's OWN bound data
+        # sources (no picker), routes the model via Auto, and asks ONE clarifying
+        # chip ONLY when there is no usable signal (cold open + empty prompt).
+        # Reuses report_slides._generate_artifact (build), the ambiguity gate
+        # (clarify), and sense-making (Decision card). Flag OFF → the existing
+        # one-click builder is unchanged. Default OFF.
+        return _bool("HYBRID_SMART_DASHBOARD", False)
 
     # --- Slice 1: foundation -------------------------------------------------
     @property
@@ -869,6 +881,7 @@ class HybridFlags:
             "RICH_REPORT_EMAIL": self.RICH_REPORT_EMAIL,
             "ONECLICK_ARTIFACTS": self.ONECLICK_ARTIFACTS,
             "AUTO_ARTIFACT": self.AUTO_ARTIFACT,
+            "SMART_DASHBOARD": self.SMART_DASHBOARD,
         }
 
 
