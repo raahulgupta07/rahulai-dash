@@ -133,6 +133,8 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_RICH_REPORT_EMAIL": {"label": "Rich Report Emails", "role": "agent", "category": "Agents & Access", "status": "beta", "note": "Render scheduled/automated report emails from structured results (clean table + sanitized insights + dashboard image/PDF) instead of dumping the raw agent chat. OFF = legacy raw-content email."},
     "HYBRID_ONECLICK_ARTIFACTS": {"label": "One-click Dashboard / Slides / Excel", "role": "user", "category": "Agents & Access", "status": "beta", "note": "On a report's right panel, turns the empty Dashboard/Slides/Excel states into one-click builders: 'Generate dashboard' (real page artifact), 'Generate slide deck' (python-pptx deck + previews + .pptx) from the report's existing charts, and an auto-filled Excel workbook. Reuses the chat create_artifact pipeline."},
     "HYBRID_AUTO_ARTIFACT": {"label": "Auto-build Dashboard from chat", "role": "user", "category": "Agents & Access", "status": "experimental", "note": "When a chat turn produces a dataset (the agent ran create_data → ≥1 chart) but makes NO artifact, automatically build a dashboard (page artifact) in the background so the Outputs panel isn't empty. Reuses the one-click create_artifact pipeline. Idempotent (only when the report has zero artifacts) + fully fail-soft. Default OFF."},
+    "HYBRID_AGENT_PLAN": {"label": "Agent Task Plan", "role": "user", "category": "Agents & Access", "status": "experimental", "note": "At run start the agent writes a 3-5 item high-level task plan (a Claude-style checklist) as a transient 'plan' block. The report Progress panel then shows a numbered task list that ticks over as work proceeds, instead of only low-level tool steps. One extra small-model call per run, fail-soft. Default OFF."},
+    "HYBRID_COWORK_PANEL": {"label": "Cowork Outputs Panel", "role": "user", "category": "Agents & Access", "status": "experimental", "note": "Report right-panel redesign: Create/Activity toggle, numbered Progress (the task plan + live sub-steps with auto-scroll), a Working-folders tree of file + database sources and their tables, and a Context section (Skills loaded/used + Sub-agents). Frontend-only, reuses existing activity data. Off keeps the legacy panel. Default OFF."},
     "HYBRID_QUOTAS": {"label": "Per-Org Quotas", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_DOMAIN_PACKS": {"label": "Domain Packs (Skills)", "role": "agent", "category": "Agents & Access", "status": "stable"},
     "HYBRID_PACK_ROUTER": {"label": "Pack Router", "role": "agent", "category": "Agents & Access", "status": "stable"},
@@ -337,6 +339,24 @@ class HybridFlags:
         # the report already has any artifact) + fail-soft (never affects the
         # chat response). No agent-loop effect. Default OFF.
         return _bool("HYBRID_AUTO_ARTIFACT", True)
+
+    @property
+    def AGENT_PLAN(self) -> bool:
+        # At the start of a run the planner emits a 3-5 item high-level task PLAN
+        # (a Claude-style TODO list) as a transient completion block
+        # (source_type='plan'). Lets the right panel show a numbered checklist
+        # whose items tick over as execution proceeds, instead of only low-level
+        # tool steps. One extra small-model call per run, fail-soft. Default OFF.
+        return _bool("HYBRID_AGENT_PLAN", False)
+
+    @property
+    def COWORK_PANEL(self) -> bool:
+        # Report right-panel redesign (Cowork look): a Create/Activity toggle,
+        # numbered Progress (the AGENT_PLAN list with live sub-steps + auto-scroll),
+        # a Working-folders tree (file + database sources with their tables), and a
+        # Context section (Skills loaded/used + Sub-agents). FE-only; reuses existing
+        # activity fields. Off => the legacy stacked panel. Default OFF.
+        return _bool("HYBRID_COWORK_PANEL", False)
 
     # --- Slice 1: foundation -------------------------------------------------
     @property
@@ -869,6 +889,8 @@ class HybridFlags:
             "RICH_REPORT_EMAIL": self.RICH_REPORT_EMAIL,
             "ONECLICK_ARTIFACTS": self.ONECLICK_ARTIFACTS,
             "AUTO_ARTIFACT": self.AUTO_ARTIFACT,
+            "AGENT_PLAN": self.AGENT_PLAN,
+            "COWORK_PANEL": self.COWORK_PANEL,
         }
 
 

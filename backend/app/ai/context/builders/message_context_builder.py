@@ -594,6 +594,10 @@ class MessageContextBuilder:
 
                 # Collect reasoning, assistant messages, and tool executions from blocks
                 for block in blocks:
+                    # Skip 'plan' blocks (HYBRID_AGENT_PLAN task checklist) — UI-only,
+                    # not part of the agent's prior reasoning/answer history.
+                    if getattr(block, 'source_type', None) == 'plan':
+                        continue
                     # Harness blocks use loop_index >= 1000 (see agent_v2._run_knowledge_harness).
                     # Wrap contiguous harness blocks in <post_analysis_knowledge_update>…</…>
                     # so the LLM sees them labeled as knowledge-base updates, not object-level work.
@@ -1214,6 +1218,9 @@ class MessageContextBuilder:
                 system_parts: List[str] = []
                 in_knowledge_wrap = False
                 for block in blocks:
+                    # Skip 'plan' blocks (HYBRID_AGENT_PLAN task checklist) — UI-only.
+                    if getattr(block, 'source_type', None) == 'plan':
+                        continue
                     is_harness = (block.loop_index or 0) >= 1000
                     if is_harness and not in_knowledge_wrap:
                         system_parts.append("<post_analysis_knowledge_update>")

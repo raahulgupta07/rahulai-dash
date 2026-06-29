@@ -99,6 +99,9 @@ class CompletionBlockV2Schema(BaseModel):
     icon: Optional[str]
     content: Optional[str]
     reasoning: Optional[str]
+    # Block kind: 'decision' | 'tool' | 'final' | 'plan' (additive; lets the UI
+    # distinguish e.g. the HYBRID_AGENT_PLAN task-plan checklist on refresh).
+    source_type: Optional[str] = None
 
     # Source objects
     plan_decision: Optional[PlanDecisionReducedSchema] = None

@@ -8,9 +8,19 @@
 // Vue `reactive([])` (or a `ref([]).value`) so per-object patches stay reactive.
 // On any error it returns the original array untouched and never throws.
 
+export interface PlanTask {
+  title: string
+  // 'pending' | 'done' | 'run' (the backend emits pending|done; 'run' is a
+  // client-derived state for the currently-active task).
+  status: string
+}
+
 export interface AgentStep {
   id: string
-  kind: 'think' | 'tool' | 'retry' | 'warn' | 'subagent'
+  kind: 'think' | 'tool' | 'retry' | 'warn' | 'subagent' | 'plan'
+  // Plan steps (kind:'plan') carry the agent's up-front numbered task list.
+  // Absent on every other kind. Optional so the shape stays backward-compatible.
+  tasks?: PlanTask[]
   icon: string // heroicon name e.g. 'heroicons:play'
   title: string // e.g. 'Ran SQL query'
   badge: string // e.g. 'run_query' (tool name / event)
@@ -332,6 +342,10 @@ export function blocksToSteps(blocks: any[]): AgentStep[] {
     for (let bi = 0; bi < list.length; bi++) {
       const b = list[bi]
       if (!b || (b as any).phase === 'knowledge_harness') continue
+      // Plan blocks are surfaced separately via extractPlanTasks() — they are
+      // NOT timeline tool/think steps, so skip them here (keeps the legacy
+      // Activity step list byte-identical for runs that emit no plan).
+      if ((b as any).source_type === 'plan') continue
       const te = (b as any).tool_execution
       if (te && te.tool_name) {
         const p = prettyTool(te.tool_name)
@@ -449,6 +463,47 @@ export function blocksToSteps(blocks: any[]): AgentStep[] {
       }
     }
     return out
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Surface the agent's up-front numbered PLAN from a system message's
+ * `completion_blocks`. The backend emits a block with `source_type === 'plan'`
+ * whose content is the JSON `{"tasks":[{"title":"…","status":"pending|done"}]}`.
+ * Returns the tasks of the LAST plan block (the agent may re-emit a refined plan
+ * mid-run). Fully defensive — `[]` on any error or when no plan block exists, so
+ * callers fall back to the live step list. Never throws.
+ */
+export function extractPlanTasks(blocks: any[]): PlanTask[] {
+  try {
+    const list = Array.isArray(blocks) ? blocks : []
+    for (let i = list.length - 1; i >= 0; i--) {
+      const b = list[i]
+      if (!b || (b as any).source_type !== 'plan') continue
+      let raw: any =
+        (b as any).content ??
+        (b as any).plan ??
+        safeGet(() => (b as any).plan_decision?.plan)
+      if (typeof raw === 'string') {
+        try {
+          raw = JSON.parse(raw)
+        } catch {
+          raw = undefined
+        }
+      }
+      const tasks = raw?.tasks ?? (Array.isArray(raw) ? raw : undefined)
+      if (Array.isArray(tasks)) {
+        return tasks
+          .map((t: any) => ({
+            title: String(t?.title ?? t?.name ?? t ?? '').trim(),
+            status: String(t?.status ?? 'pending').toLowerCase(),
+          }))
+          .filter((t: PlanTask) => !!t.title)
+      }
+    }
+    return []
   } catch {
     return []
   }

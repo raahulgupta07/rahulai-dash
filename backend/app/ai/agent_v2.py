@@ -1716,6 +1716,107 @@ class AgentV2:
             logger.warning(f"[agent.single_writer] rebuild failed: {_e!r}")
         return True
 
+    async def _emit_task_plan(self, data_context: str = "") -> None:
+        """HYBRID_AGENT_PLAN: emit a one-time high-level task plan as a single
+        'plan' CompletionBlock at run start.
+
+        Makes ONE small-model call (``build_task_plan``) for a 3-5 item
+        Claude-TodoWrite-style checklist, emits a ``block.upsert`` SSE event so
+        the live stream shows it immediately, and persists the block (in an
+        isolated session) so a page refresh still shows the plan. Purely
+        additive — never alters the loop. Fully fail-soft (never raises; caller
+        also wraps in try/except).
+
+        SSE event: ``block.upsert`` with ``data.block`` carrying
+        ``source_type='plan'`` and a ``tasks`` list (``[{title,status}]``).
+        The persisted block stores the same list as JSON in ``content``
+        (``{"tasks":[...]}``) so the FE can hydrate it on refresh.
+        """
+        try:
+            from app.ai.knowledge.task_planner import build_task_plan
+
+            user_message = ""
+            if self.head_completion and getattr(self.head_completion, "prompt", None):
+                user_message = self.head_completion.prompt.get("content", "") or ""
+            if not user_message.strip():
+                return
+
+            user = getattr(self.head_completion, "user", None)
+            tasks = await build_task_plan(
+                self.db,
+                user_message=user_message,
+                organization=self.organization,
+                user=user,
+                model=self.small_model or self.model,
+                data_context=data_context or "",
+            )
+            if not tasks:
+                return
+
+            # Reserve a low, unique sequence so the plan renders first.
+            try:
+                plan_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+            except Exception:
+                plan_seq = 0
+            block_index = int((plan_seq or 0) * 100)
+            block_id = str(_uuid_mod.uuid4())
+            content_json = json.dumps({"tasks": tasks})
+            title = "Task plan"
+            icon = "📋"
+
+            # 1) Emit SSE so the live stream shows the plan immediately.
+            try:
+                await self._emit_sse_event(SSEEvent(
+                    event="block.upsert",
+                    completion_id=str(self.system_completion.id),
+                    agent_execution_id=str(self.current_execution.id),
+                    seq=plan_seq,
+                    data={"block": {
+                        "id": block_id,
+                        "source_type": "plan",
+                        "loop_index": None,
+                        "status": "completed",
+                        "title": title,
+                        "icon": icon,
+                        "content": content_json,
+                        "reasoning": None,
+                        "tasks": tasks,
+                        "block_index": block_index,
+                        "plan_decision_id": None,
+                        "tool_execution_id": None,
+                        "started_at": None,
+                        "completed_at": None,
+                    }}
+                ))
+            except Exception as _sse_exc:
+                logger.warning(f"[agent] plan block.upsert SSE failed (ignored): {_sse_exc!r}")
+
+            # 2) Persist in an isolated session so a refresh still shows the plan.
+            #    Decoupled from the agent's write transaction; fail-soft.
+            try:
+                from app.models.completion_block import CompletionBlock
+                async with async_session_maker() as _pdb:
+                    _pdb.add(CompletionBlock(
+                        id=block_id,
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
+                        source_type="plan",
+                        plan_decision_id=None,
+                        tool_execution_id=None,
+                        block_index=block_index,
+                        loop_index=None,
+                        title=title,
+                        status="completed",
+                        icon=icon,
+                        content=content_json,
+                        reasoning=None,
+                    ))
+                    await _pdb.commit()
+            except Exception as _persist_exc:
+                logger.warning(f"[agent] plan block persist failed (ignored): {_persist_exc!r}")
+        except Exception as e:
+            logger.warning(f"[agent] _emit_task_plan failed (ignored): {e!r}")
+
     async def _release_db_between_steps(self) -> None:
         """Commit the agent's main session so its pooled DB connection is returned
         to the pool during the upcoming long awaits (planner LLM call, tool /
@@ -2417,6 +2518,19 @@ class AgentV2:
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
             _mlog("loop_starting")
+
+            # === PLAN (HYBRID_AGENT_PLAN): one-time high-level task plan ===
+            # Before the planner/execute loop, optionally emit a short Claude-
+            # TodoWrite-style checklist (3-5 imperative steps) as a single
+            # 'plan' CompletionBlock. Purely additive UI context — it never
+            # touches the loop, tools, or final answer. Fully fail-soft: any
+            # error here must NEVER break the run.
+            try:
+                from app.settings.hybrid_flags import flags as _plan_flags
+                if _plan_flags.AGENT_PLAN:
+                    await self._emit_task_plan(schemas_excerpt)
+            except Exception as _plan_exc:
+                logger.warning(f"[agent] task plan emission failed (ignored): {_plan_exc!r}")
 
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():

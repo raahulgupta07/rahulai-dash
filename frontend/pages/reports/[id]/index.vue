@@ -871,6 +871,222 @@
 			<!-- Studio launcher (compact: output cards on top + slim live panel below) -->
 			<div v-if="rightPanelView === 'studio'" class="h-full overflow-y-auto">
 
+				<!-- ============================================================
+				     COWORK PANEL (HYBRID_COWORK_PANEL ON) — Claude-Cowork look.
+				     Create/Activity toggle · NOW · numbered PROGRESS plan with
+				     live auto-scrolling sub-steps · Working-folders tree · Context.
+				     ============================================================ -->
+				<template v-if="coworkEnabled">
+					<div class="p-3">
+						<!-- Create / Activity segmented toggle -->
+						<div class="flex gap-1 bg-[#F0EEEC] rounded-lg p-[3px] mb-3">
+							<button
+								@click="coworkTab = 'create'"
+								:class="['flex-1 text-[12px] font-semibold py-1.5 rounded-md transition-colors cursor-pointer', coworkTab === 'create' ? 'bg-white text-[#1f2329] shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+							>+ Create</button>
+							<button
+								@click="coworkTab = 'activity'"
+								:class="['flex-1 text-[12px] font-semibold py-1.5 rounded-md transition-colors cursor-pointer', coworkTab === 'activity' ? 'bg-white text-[#1f2329] shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+							>Activity</button>
+						</div>
+
+						<!-- ============ CREATE TAB ============ -->
+						<div v-show="coworkTab === 'create'">
+							<div class="flex items-center gap-2 mb-1.5">
+								<span class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Make an output</span>
+								<span class="h-px flex-1 bg-gray-100"></span>
+								<span class="text-[9px] text-gray-400">tap &rarr; generate</span>
+							</div>
+							<div class="grid grid-cols-3 gap-1.5">
+								<button @click="handleExampleClick('Build a dashboard for: ' + (lastUserQuestion || report?.title || 'this data'))" class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#F4F7FF] transition cursor-pointer hover:-translate-y-px hover:shadow-md hover:border-[#d9c4b6]">
+									<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-blue-100 text-blue-700">AI</span>
+									<svg width="15" height="15" fill="none" stroke="#3B6FE0" stroke-width="1.9" viewBox="0 0 24 24"><rect x="3" y="11" width="4" height="9"/><rect x="10" y="6" width="4" height="14"/><rect x="17" y="3" width="4" height="17"/></svg>
+									<div class="mt-1.5 text-[10.5px] font-semibold text-[#2C53A8] leading-tight">Dashboard</div>
+								</button>
+								<button @click="handleExampleClick('Write a narrative report with key findings for: ' + (lastUserQuestion || report?.title || 'this data'))" class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#F6F4FF] transition cursor-pointer hover:-translate-y-px hover:shadow-md hover:border-[#d9c4b6]">
+									<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-violet-100 text-violet-700">AI</span>
+									<svg width="15" height="15" fill="none" stroke="#7A5CD0" stroke-width="1.8" viewBox="0 0 24 24"><path d="M6 3h9l5 5v13H6z"/><path d="M15 3v5h5"/></svg>
+									<div class="mt-1.5 text-[10.5px] font-semibold text-[#5A41A8] leading-tight">Report</div>
+								</button>
+								<button @click="setPanelView('slides', true)" class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#FFF4EF] transition cursor-pointer hover:-translate-y-px hover:shadow-md hover:border-[#d9c4b6]">
+									<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#FEE9DF] text-[#C2541E]">PPT</span>
+									<svg width="15" height="15" fill="none" stroke="#D2603A" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg>
+									<div class="mt-1.5 text-[10.5px] font-semibold text-[#C2541E] leading-tight">Slides</div>
+								</button>
+								<button @click="setPanelView('excel', true)" class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#EEFAF1] transition cursor-pointer hover:-translate-y-px hover:shadow-md hover:border-[#d9c4b6]">
+									<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#D8F3E1] text-[#157A43]">XLS</span>
+									<svg width="15" height="15" fill="none" stroke="#1E9E57" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8l8 8M16 8l-8 8"/></svg>
+									<div class="mt-1.5 text-[10.5px] font-semibold text-[#157A43] leading-tight">Excel</div>
+								</button>
+								<div class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#FBEFF6] cursor-default opacity-65">
+									<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#F6D9EC] text-[#C13D8C]">SOON</span>
+									<svg width="15" height="15" fill="none" stroke="#C13D8C" stroke-width="1.8" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="9" cy="8" r="2"/><path d="M13 7h4M7 14h10M7 17h7"/></svg>
+									<div class="mt-1.5 text-[10.5px] font-semibold text-[#A52E72] leading-tight">Infographic</div>
+								</div>
+								<div class="relative text-left rounded-lg border border-gray-200 p-2 bg-[#F1EEFB] cursor-default opacity-65">
+									<span class="absolute top-1.5 right-1.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-[#E3DBF8] text-[#6B4FD0]">SOON</span>
+									<svg width="15" height="15" fill="none" stroke="#6B4FD0" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h6M13 12l4-5M13 12l4 5"/></svg>
+									<div class="mt-1.5 text-[10.5px] font-semibold text-[#5A41B0] leading-tight">Insight Map</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- ============ ACTIVITY TAB ============ -->
+						<div v-show="coworkTab === 'activity'" class="space-y-2.5">
+
+							<!-- NOW -->
+							<div class="rounded-xl border border-[#EAD8CD] bg-[#FFF6F1] px-3 py-2 flex items-center gap-2">
+								<span class="w-1.5 h-1.5 rounded-full flex-none" :class="activityNow ? 'bg-[#C2541E] animate-pulse' : 'bg-gray-300'"></span>
+								<span class="text-[10px] font-extrabold tracking-wide text-[#C2541E] flex-none">NOW</span>
+								<span class="text-[12px] text-gray-700 truncate">{{ activityNow || 'Idle' }}</span>
+							</div>
+
+							<!-- PROGRESS = numbered plan + live sub-steps (auto-scroll) -->
+							<div class="rounded-xl border border-gray-200 bg-white p-3">
+								<div class="flex items-center justify-between mb-2">
+									<span class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Progress</span>
+									<span class="text-[11px] font-semibold text-gray-500">{{ coworkProgressLabel }}</span>
+								</div>
+								<div
+									ref="coworkStepWrap"
+									@scroll="onCoworkScroll"
+									class="max-h-[230px] overflow-y-auto no-scrollbar pr-0.5 scroll-smooth"
+								>
+									<!-- PLAN MODE -->
+									<ul v-if="activityPlan.length" class="list-none m-0 p-0">
+										<li v-for="(task, idx) in activityPlan" :key="'plan-' + idx">
+											<div class="flex items-start gap-2.5 py-1">
+												<span
+													class="w-5 h-5 rounded-full flex-none grid place-items-center text-[10.5px] font-bold border"
+													:class="coworkTaskNumClass(task, idx)"
+												>
+													<span v-if="coworkTaskState(task, idx) === 'done'">&#10003;</span>
+													<span v-else-if="coworkTaskState(task, idx) === 'run'" class="w-2 h-2 rounded-full border-2 border-[#C2541E] border-t-transparent animate-spin"></span>
+													<span v-else>{{ idx + 1 }}</span>
+												</span>
+												<span
+													class="text-[12.5px] flex-1 pt-0.5"
+													:class="coworkTaskState(task, idx) === 'done' ? 'text-gray-400 line-through' : (coworkTaskState(task, idx) === 'run' ? 'font-semibold text-[#2b313a]' : 'text-[#2b313a]')"
+												>{{ task.title }}</span>
+											</div>
+											<!-- live sub-steps stream UNDER the current task -->
+											<ul
+												v-if="idx === coworkActiveTaskIndex && activeSteps.length"
+												class="list-none mt-0.5 mb-1 ml-[9px] pl-[21px] border-l border-dashed border-[#e6e3df]"
+											>
+												<li
+													v-for="s in activeSteps"
+													:key="'sub-' + s.id"
+													class="flex items-center gap-2 py-[2.5px] text-[11.5px]"
+													:class="s.status === 'run' ? 'text-[#2b313a] font-semibold' : 'text-gray-500'"
+												>
+													<span class="w-1.5 h-1.5 rounded-full flex-none" :class="coworkSubDotClass(s)"></span>
+													<span class="truncate">{{ (s.recovered || s.status === 'warn') ? (s.recoveredLabel || s.title) : s.title }}</span>
+													<span
+														v-if="s.recovered || s.status === 'warn'"
+														class="ms-auto text-[8.5px] font-bold px-1.5 rounded bg-[#fef3cd] text-[#b45309] flex-none"
+													>{{ s.recoveredLabel || 'self-fixed' }}</span>
+												</li>
+											</ul>
+										</li>
+									</ul>
+									<!-- FALLBACK (no plan): live steps, like the legacy panel -->
+									<div v-else-if="activeSteps.length" class="space-y-1.5 text-[12px]">
+										<div v-for="step in activeSteps" :key="step.id" class="flex items-center gap-2">
+											<span class="w-2 h-2 rounded-full flex-none" :class="coworkSubDotClass(step)"></span>
+											<span class="font-medium truncate" :class="step.status === 'done' ? 'text-gray-400' : 'text-[#2b313a]'">{{ (step.recovered || step.status === 'warn') ? (step.recoveredLabel || step.title) : step.title }}</span>
+											<span v-if="step.recovered || step.status === 'warn'" class="ms-auto text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-none">retry</span>
+											<span v-else-if="step.status === 'done'" class="ms-auto text-green-500 flex-none">&#10003;</span>
+										</div>
+									</div>
+									<div v-else class="text-[12px] text-gray-400 py-1">No steps yet for this run.</div>
+								</div>
+								<div class="h-1.5 bg-[#f0eeec] rounded-full overflow-hidden mt-2.5">
+									<div class="h-full bg-[#C2541E] transition-all" :style="{ width: coworkProgressPct + '%' }"></div>
+								</div>
+								<div class="text-[10.5px] text-gray-400 mt-1.5">{{ coworkProgressMeta }}</div>
+							</div>
+
+							<!-- WORKING FOLDERS = data sources (file + database) tree -->
+							<details open class="rounded-xl border border-gray-200 bg-white">
+								<summary class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none">
+									<svg class="chev flex-none" width="11" height="11" fill="none" stroke="#9aa1ac" stroke-width="2.4" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+									<span class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Working folders</span>
+									<span class="ms-auto text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ (report?.data_sources || []).length }}</span>
+								</summary>
+								<div class="px-3 pb-2 text-[12.5px] max-h-[200px] overflow-y-auto">
+									<div v-for="ds in (report?.data_sources || [])" :key="ds?.id">
+										<div class="flex items-center gap-2 py-1">
+											<span class="flex-none w-4 grid place-items-center">{{ coworkDsIcon(ds) }}</span>
+											<span class="truncate">{{ ds?.name || ds?.alias || 'source' }}</span>
+											<span v-if="coworkDsType(ds)" class="ms-auto text-[9px] text-gray-400 border border-gray-200 rounded px-1.5 flex-none">{{ coworkDsType(ds) }}</span>
+											<span
+												class="text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-none ms-1.5"
+												:class="ds?.active === false ? 'bg-gray-100 text-gray-500' : 'bg-[#ecfdf3] text-[#15803d]'"
+											>{{ ds?.active === false ? 'ref' : 'active' }}</span>
+										</div>
+										<div
+											v-for="(tbl, ti) in coworkDsTables(ds)"
+											:key="'tbl-' + ti"
+											class="flex items-center gap-2 py-0.5 pl-7 text-gray-500"
+										>
+											<span class="flex-none">&#9638;</span>
+											<span class="truncate">{{ tbl }}</span>
+										</div>
+									</div>
+									<div v-if="!(report?.data_sources || []).length" class="text-gray-400 py-1">none</div>
+								</div>
+							</details>
+
+							<!-- CONTEXT = Skills + Sub-agents chips -->
+							<details open class="rounded-xl border border-gray-200 bg-white">
+								<summary class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none">
+									<svg class="chev flex-none" width="11" height="11" fill="none" stroke="#9aa1ac" stroke-width="2.4" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+									<span class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Context</span>
+								</summary>
+								<div class="px-3 pb-2.5">
+									<div class="text-[10px] font-bold uppercase tracking-wide text-gray-400 mt-1 mb-1.5">Skills</div>
+									<div class="flex flex-wrap gap-1.5 mb-2">
+										<span
+											v-for="skill in activitySkills"
+											:key="skill.id"
+											class="inline-flex items-center gap-1.5 text-[11.5px] px-2.5 py-1 rounded-full border border-gray-200 bg-white text-[#3b4250]"
+										>
+											<span class="w-1.5 h-1.5 rounded-full bg-[#C2541E]"></span>
+											{{ skill.title }}
+											<span
+												class="text-[8.5px] font-extrabold px-1.5 rounded"
+												:class="skill.badge === 'load_skill' ? 'bg-[#eef2fe] text-[#2C53A8]' : 'bg-[#FFF6F1] text-[#C2541E]'"
+											>{{ skill.badge === 'load_skill' ? 'LOADED' : 'USED' }}</span>
+										</span>
+										<span v-if="!activitySkills.length" class="text-[11.5px] text-gray-400">none this run</span>
+									</div>
+									<div class="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Sub-agents</div>
+									<div class="flex flex-wrap gap-1.5">
+										<span
+											v-for="sa in activitySubagents"
+											:key="sa.id"
+											class="inline-flex items-center gap-1.5 text-[11.5px] px-2.5 py-1 rounded-full border border-gray-200 bg-white text-[#3b4250]"
+										>
+											<span class="w-1.5 h-1.5 rounded-full bg-[#2C53A8]"></span>
+											{{ sa.title }}
+											<span
+												class="text-[8.5px] font-extrabold px-1.5 rounded"
+												:class="sa.status === 'done' ? 'bg-[#ecfdf3] text-[#15803d]' : 'bg-[#fff3cd] text-[#b45309]'"
+											>{{ sa.status === 'done' ? 'DONE' : 'RUN' }}</span>
+										</span>
+										<span v-if="!activitySubagents.length" class="text-[11.5px] text-gray-400">none this run</span>
+									</div>
+								</div>
+							</details>
+
+						</div>
+					</div>
+				</template>
+
+				<!-- ============ LEGACY PANEL (HYBRID_COWORK_PANEL OFF) ============ -->
+				<template v-else>
+
 				<!-- ============ TOP: COMPACT OUTPUT CARDS ============ -->
 				<div class="p-3">
 					<div class="flex items-center gap-2 mb-1.5">
@@ -1056,6 +1272,7 @@
 					</div>
 
 				</div>
+			</template>
 			</div>
 			<!-- Summary View -->
 			<div v-else-if="rightPanelView === 'summary'" class="h-full flex flex-col">
@@ -2856,6 +3073,135 @@ const activityNext = computed<string>(() => {
 	return nxt.why || nxt.title || ''
 })
 
+// ===== Cowork panel (HYBRID_COWORK_PANEL) =====
+// Claude-Cowork redesign of the right activity/outputs panel: a Create/Activity
+// segmented toggle, NOW banner, numbered PROGRESS plan (the agent's up-front task
+// list) with live sub-steps grouped under the current task + auto-scroll, a
+// Working-folders tree of data sources, and a Context section (Skills/Sub-agents).
+// FLAG-GATED (default OFF → the legacy panel renders unchanged). Mirrors the
+// oneClickEnabled flag-read pattern exactly.
+const coworkEnabled = ref(false)
+const coworkTab = ref<'activity' | 'create'>('activity')
+
+async function loadCoworkFlag() {
+	try {
+		const { data } = await useMyFetch<any[]>('/organization/hybrid-flags')
+		const rows = (data.value as any[]) || []
+		const row = rows.find(r => r?.env_name === 'HYBRID_COWORK_PANEL')
+		coworkEnabled.value = !!row?.effective
+	} catch {
+		coworkEnabled.value = false  // fail-soft: keep the legacy panel
+	}
+}
+
+// PLAN = the agent's up-front numbered task list (source_type:'plan' block).
+// Empty for old/flag-off runs → Progress falls back to activeSteps (below).
+const activityPlan = computed<any[]>(() => {
+	try {
+		const msg = lastSystemMessage.value as any
+		return extractPlanTasks(msg?.completion_blocks || [])
+	} catch {
+		return []
+	}
+})
+// Current plan task = first task not yet 'done' (where live sub-steps nest).
+// -1 when the plan is empty OR every task is done (run finished).
+const coworkActiveTaskIndex = computed<number>(() => {
+	const tasks = activityPlan.value || []
+	return tasks.findIndex((t: any) => String(t?.status || '').toLowerCase() !== 'done')
+})
+const coworkPlanDone = computed<number>(() =>
+	(activityPlan.value || []).filter((t: any) => String(t?.status || '').toLowerCase() === 'done').length
+)
+// Progress meta — plan-aware when a plan exists, else mirrors the step counters.
+const coworkProgressPct = computed<number>(() => {
+	const total = (activityPlan.value || []).length
+	if (total > 0) return Math.round((coworkPlanDone.value / total) * 100)
+	return activityProgressPct.value
+})
+const coworkProgressLabel = computed<string>(() => {
+	const total = (activityPlan.value || []).length
+	if (total > 0) return `${coworkPlanDone.value} / ${total}`
+	return `${activityDoneCount.value} / ${activityTotal.value}`
+})
+const coworkProgressMeta = computed<string>(() => {
+	const total = (activityPlan.value || []).length
+	if (total > 0) {
+		const cur = coworkActiveTaskIndex.value === -1 ? total : coworkActiveTaskIndex.value + 1
+		return `task ${cur} of ${total}`
+	}
+	return `${activityDoneCount.value} of ${activityTotal.value} steps`
+})
+
+// Per-task visual state: done | run (the active task) | pending.
+function coworkTaskState(task: any, idx: number): 'done' | 'run' | 'pending' {
+	if (String(task?.status || '').toLowerCase() === 'done') return 'done'
+	if (idx === coworkActiveTaskIndex.value) return 'run'
+	return 'pending'
+}
+function coworkTaskNumClass(task: any, idx: number): string {
+	const st = coworkTaskState(task, idx)
+	if (st === 'done') return 'bg-[#C2541E] border-[#C2541E] text-white'
+	if (st === 'run') return 'border-[#C2541E] text-[#C2541E]'
+	return 'border-gray-200 text-gray-400 bg-white'
+}
+// Live sub-step dot colour (mirrors the legacy Progress dot palette).
+function coworkSubDotClass(s: any): string {
+	if (s?.status === 'done') return 'bg-[#15803d]'
+	if (s?.recovered || s?.status === 'warn') return 'bg-[#f0c674]'
+	if (s?.status === 'err') return 'bg-red-500'
+	if (s?.status === 'run') return 'bg-[#C2541E] animate-pulse'
+	return 'bg-gray-300'
+}
+
+// ---- Working-folders tree helpers (degrade gracefully) ----
+// report.data_sources[] reliably carries name/alias/active. type + tables are
+// NOT guaranteed on that payload (see report below) — read defensively and fall
+// back to a generic db icon / no table rows when absent. No new endpoints here.
+function coworkDsType(ds: any): string {
+	return String(ds?.type || ds?.connection_type || ds?.subtype || ds?.connection?.type || '').toLowerCase()
+}
+function coworkDsIcon(ds: any): string {
+	const t = coworkDsType(ds)
+	if (/spreadsheet|csv|excel|file|upload/.test(t)) return '📄'
+	if (/snowflake/.test(t)) return '❄️'
+	return '🗄️'
+}
+function coworkDsTables(ds: any): string[] {
+	try {
+		const raw = ds?.tables || ds?.active_tables || []
+		if (!Array.isArray(raw)) return []
+		return raw
+			.map((t: any) => String(t?.name || t?.table || t || '').trim())
+			.filter((n: string) => !!n)
+			.slice(0, 8)
+	} catch {
+		return []
+	}
+}
+
+// ---- AUTO-SCROLL: sticky-bottom for the streaming sub-steps ----
+// Scroll the Progress container to the newest sub-step as steps stream, but
+// ONLY when the user is already near the bottom (so reading older steps isn't
+// yanked away). `atBottom` is recomputed on every manual scroll.
+const coworkStepWrap = ref<HTMLElement | null>(null)
+const coworkAtBottom = ref(true)
+function onCoworkScroll() {
+	const el = coworkStepWrap.value
+	if (!el) return
+	coworkAtBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 28
+}
+watch(
+	() => [activeSteps.value.length, activityPlan.value.length, coworkActiveTaskIndex.value],
+	() => {
+		if (!coworkEnabled.value || !coworkAtBottom.value) return
+		nextTick(() => {
+			const el = coworkStepWrap.value
+			if (el) el.scrollTop = el.scrollHeight
+		})
+	},
+)
+
 // ===== Auto-pilot watchers =====
 const runStatus = computed(() => (lastSystemMessage.value as any)?.status)
 
@@ -4387,6 +4733,7 @@ onMounted(() => {
     window.addEventListener('message', handleOfficeJsResult)
     markdownAutoDir.value = useMarkdownAutoDir()
     loadOneClickFlag().then(loadWorkbook)
+    loadCoworkFlag()
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info

@@ -211,6 +211,7 @@ def serialize_block_v2_sync(
         icon=block.icon,
         content=block.content,
         reasoning=block.reasoning,
+        source_type=getattr(block, "source_type", None),
         plan_decision=pd_schema,
         tool_execution=te_schema,
         artifact_changes=None,
