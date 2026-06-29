@@ -448,6 +448,10 @@
                                         <UIcon name="i-heroicons-arrow-up-tray" class="w-3.5 h-3.5" />
                                         Upload file
                                     </button>
+                                    <button v-if="smartUploadEnabled" type="button" class="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[#C2541E] hover:bg-[#A8330F] px-3.5 py-1.5 border-s border-[#A8330F] transition-colors" @click="smartUploadOpen = true">
+                                        <UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5" />
+                                        Smart Upload
+                                    </button>
                                 </div>
                             </div>
 
@@ -1282,6 +1286,16 @@
                 @created="onUploadCreated"
             />
 
+            <!-- Smart Upload → one drop zone, auto-classify + route (flag HYBRID_SMART_UPLOAD) -->
+            <UploadSmartUploadModal
+                v-if="smartUploadOpen"
+                :studio-id="studioId"
+                :data-source-id="smartUploadDataSourceId"
+                :open="smartUploadOpen"
+                @close="smartUploadOpen = false"
+                @applied="onSmartApplied"
+            />
+
             <!-- Connect a source (46 connectors) → creates org source, auto-pins -->
             <AddConnectionModal
                 v-model="showConnectModal"
@@ -1509,6 +1523,27 @@ async function loadReportsFlag() {
         const row = rows.find((r: any) => r?.env_name === 'HYBRID_AGENT_REPORTS' || r?.key === 'agent_reports')
         if (row && typeof row.effective === 'boolean') reportsEnabled.value = row.effective
     } catch { /* flag plumbing absent → leave OFF */ }
+}
+
+// Smart Upload (one drop zone → auto-classify + route) — gated by HYBRID_SMART_UPLOAD. Fail-soft OFF.
+const smartUploadEnabled = ref(false)
+const smartUploadOpen = ref(false)
+async function loadSmartUploadFlag() {
+    try {
+        const { data } = await useMyFetch<any>('/api/organization/hybrid-flags')
+        const rows: any[] = Array.isArray(data.value) ? (data.value as any[]) : []
+        const row = rows.find((r: any) => r?.env_name === 'HYBRID_SMART_UPLOAD' || r?.key === 'smart_upload')
+        if (row && typeof row.effective === 'boolean') smartUploadEnabled.value = row.effective
+    } catch { /* flag plumbing absent → leave OFF */ }
+}
+// First pinned source's data_source_id (Source.agent_id is the data-source id used across this page); else undefined.
+const smartUploadDataSourceId = computed<string | undefined>(() => {
+    const s = sources.value[0] as any
+    return s ? String(s.agent_id) : undefined
+})
+// Smart Upload applied → refresh sources (same as a normal upload) + close.
+const onSmartApplied = async (_summary: any) => {
+    try { await fetchSources() } catch { /* fail-soft */ }
 }
 const loading = ref(true)
 const notFound = ref(false)
@@ -3112,6 +3147,7 @@ onMounted(async () => {
             loadPacksFlag(),
             loadConnectorsFlag(),
             loadReportsFlag(),
+            loadSmartUploadFlag(),
             loadTrainStatus(),
         ])
     }
