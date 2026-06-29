@@ -262,6 +262,23 @@ image). Standalone in-container scripts: `cd /app/backend && PYTHONPATH=/app/bac
 
 
 
+## Parked feature branches (built, NOT merged, NOT baked, flags OFF — 2026-06-29)
+Three large features built phase-by-phase on isolated branches off `main`, each flag-gated default-OFF,
+pushed to origin, **never merged to main**. With flags OFF the running product is byte-identical. Each has
+a full memory file (see MEMORY.md). Tail work (live-run, FE-wire, auto-learn) noted per feature.
+- **`feature/smart-dashboard`** — Outputs "Generate dashboard" → smart builder: auto-context from the chat
+  turn + the agent's OWN bound sources (no picker), Auto model, ONE clarify chip only when blind. Flag
+  `HYBRID_SMART_DASHBOARD`. NEW `routes/smart_dashboard.py` (context + smart-generate) + `report_slides.
+  _generate_artifact` gains optional `steer_prompt/depth/size` + FE `components/dashboard/SmartBuildSheet.vue`
+  (`<DashboardSmartBuildSheet>`). Reuses `_generate_artifact`+`ambiguity_gate`+`sense_maker`. = ROADMAP F01.
+- **`feature/ingest-brain`** — Universal Ingest Brain (ROADMAP F09). Sidecar pkg `services/ingest_brain/`
+  (≠ existing `services/ingest/`): messy-Excel (merged cells / N-tables / hier-headers) + per-column
+  `column_profiles` (mig `colprofile1` off `sessumm1`) + PDF/Word/PPT + scanned/image vision + email/HTML/
+  legacy-.xls + cross-source UNIFY joins. Flag `HYBRID_INGEST_BRAIN`. Pure-python tested; STORE auto-learn
+  + live vision = tail. Adds OPTIONAL deps `camelot-py`/`ebooklib` (lazy, missing→degrade).
+- **`feature/mixture-of-agents`** — MoA: 4 diverse models analyse in parallel → glm-5.2 writes. `POST
+  /llm/moa/test`. Resume = register a virtual `moa/` picker model + AgentV2 hook.
+
 ## Changelog → `DEVLOG.md`
 
 The full dated per-feature changelog (every `## YYYY-MM-DD` entry from 2026-06-19 on) now lives in
