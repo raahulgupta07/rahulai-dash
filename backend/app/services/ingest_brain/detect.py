@@ -12,9 +12,11 @@ from app.services.ingest_brain.contract import SourceDoc
 
 logger = logging.getLogger(__name__)
 
-_SPREADSHEET = {"xlsx", "xlsm", "xls", "csv", "tsv", "txt"}
+_SPREADSHEET = {"xlsx", "xlsm", "csv", "tsv", "txt"}
+_LEGACY_XL = {"xls", "xlsb"}                 # old Excel → xlrd / pyxlsb path (P-E)
 _DOC = {"docx", "pptx"}
 _IMAGE = {"png", "jpg", "jpeg", "tiff", "bmp", "webp"}
+_EMAIL = {"eml", "html", "htm", "epub"}      # email / web / ebook (P-D)
 
 # A digital PDF page usually yields plenty of characters; a scanned one yields ~0.
 _TEXT_LAYER_MIN_CHARS = 40
@@ -56,6 +58,10 @@ def detect(path: str, filename: str) -> SourceDoc:
 
     if ext in _SPREADSHEET:
         kind, has_text = "spreadsheet", True
+    elif ext in _LEGACY_XL:
+        kind, has_text = "legacy_excel", True
+    elif ext in _EMAIL:
+        kind, has_text = "email", True
     elif ext in _DOC:
         kind, has_text = "doc", True
     elif ext in _IMAGE:

@@ -58,15 +58,31 @@ def extract(source: SourceDoc, *, vision_infer=None) -> tuple[List[RawTable], Li
             if ext in ("csv", "tsv", "txt"):
                 return [], []   # existing CSV path handles these
             from app.services.ingest_brain.excel_extract import extract_tables
-            return extract_tables(source.path, filename=source.filename), []
+            tbls = extract_tables(source.path, filename=source.filename)
+            _, prose = _embedded_charts(source, vision_infer)        # P-F charts in xlsx
+            return tbls, prose
         if kind == "text_pdf":
             from app.services.ingest_brain.pdf_extract import extract_pdf
             return extract_pdf(source.path, filename=source.filename)
         if kind == "doc":
             from app.services.ingest_brain.pdf_extract import extract_docx, extract_pptx
             if ext == "pptx":
-                return extract_pptx(source.path, filename=source.filename)
-            return extract_docx(source.path, filename=source.filename)
+                tbls, prose = extract_pptx(source.path, filename=source.filename)
+            else:
+                tbls, prose = extract_docx(source.path, filename=source.filename)
+            tbls2, prose2 = _embedded_charts(source, vision_infer)   # P-F
+            return tbls + tbls2, prose + prose2
+        if kind == "legacy_excel":
+            from app.services.ingest_brain.legacy_excel import extract_legacy_excel
+            return extract_legacy_excel(source.path, ext, filename=source.filename), []
+        if kind == "email":
+            from app.services.ingest_brain.email_extract import (
+                extract_html, extract_eml, extract_epub)
+            if ext == "eml":
+                return extract_eml(source.path, filename=source.filename)
+            if ext == "epub":
+                return extract_epub(source.path, filename=source.filename)
+            return extract_html(source.path, filename=source.filename)
         if kind in ("scanned_pdf", "image"):
             from app.services.ingest_brain.vision_extract import extract_vision
             return extract_vision(source.path, ext, filename=source.filename,
@@ -74,6 +90,19 @@ def extract(source: SourceDoc, *, vision_infer=None) -> tuple[List[RawTable], Li
         return [], []
     except Exception:  # noqa: BLE001
         logger.exception("ingest_brain.extract failed")
+        return [], []
+
+
+def _embedded_charts(source: SourceDoc, vision_infer):
+    """P-F: read images embedded in xlsx/pptx via vision → ProseBlocks. Fail-soft."""
+    if vision_infer is None or source.ext not in ("xlsx", "xlsm", "pptx"):
+        return [], []
+    try:
+        from app.services.ingest_brain.chart_extract import extract_embedded_charts
+        return extract_embedded_charts(source.path, source.ext,
+                                       filename=source.filename, vision_infer=vision_infer)
+    except Exception:  # noqa: BLE001
+        logger.exception("ingest_brain._embedded_charts failed")
         return [], []
 
 

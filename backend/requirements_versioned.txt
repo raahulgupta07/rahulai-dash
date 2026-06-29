@@ -93,6 +93,10 @@ more-itertools==10.5.0
 numpy==1.26.4
 openai==1.107.2
 openpyxl==3.1.5
+# F09 Ingest Brain (flag HYBRID_INGEST_BRAIN, all lazy-imported + fail-soft).
+# camelot/ebooklib are OPTIONAL: missing → that format degrades gracefully, never errors.
+camelot-py==0.11.0
+ebooklib==0.18
 ordered-set==4.1.0
 packaging==24.0
 pathspec==1.0.4
