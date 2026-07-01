@@ -38,6 +38,16 @@ class DataSource(BaseSchema):
     # admins) can see them. Sharing org-wide is an opt-in (set is_public=True).
     is_public = Column(Boolean, nullable=False, default=False)
 
+    # Per-user private connector template. When True this DataSource is an
+    # admin-configured SHELL (tenant/client config, no user creds, no synced
+    # data) that each member "registers" against with their own credentials —
+    # cloning it into a private, owner-scoped DataSource with their own catalog.
+    # Templates are hidden from the normal data-source list (surfaced only in the
+    # "Available connectors" endpoint). See services/per_user_connector.py.
+    is_user_template = Column(Boolean, nullable=False, default=False, server_default="false")
+    # On a per-user clone: the template DataSource it was registered from (audit/link).
+    template_source_id = Column(String(36), ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True)
+
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)
     owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     context = Column(Text, nullable=True)

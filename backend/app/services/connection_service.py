@@ -91,11 +91,18 @@ class ConnectionService:
         auth_policy: str = "system_only",
         allowed_user_auth_modes: list = None,
         owner_user_id: str = None,
+        validate: bool = True,
     ) -> Connection:
         """Create a new connection with validation.
 
         owner_user_id: when set, the connection is PRIVATE to that user
         (per-agent connectors, HYBRID_AGENT_CONNECTORS). NULL = org-wide/shared.
+
+        validate: when False, skip the up-front connectivity/schema test. Used by
+        the per-user connector where identity is already proven (device-code) and
+        an empty/non-queryable catalog at connect time is normal (e.g. Power BI
+        datasets that are on-prem-gateway or have no tables yet) — the catalog
+        syncs best-effort afterwards instead of hard-failing the connect.
         """
 
         # Check enterprise license for restricted data sources
@@ -123,7 +130,7 @@ class ConnectionService:
                 allowed_user_auth_modes = ["oauth"]
 
         # Validate connection before saving (for system_only auth)
-        if auth_policy == "system_only":
+        if validate and auth_policy == "system_only":
             validation_result = await self.test_connection_params(
                 data_source_type=type,
                 config=config,
@@ -209,8 +216,24 @@ class ConnectionService:
         except Exception:
             pass
 
+        # Connector → Data Agent: auto-spawn an ORG-SHARED agent bound to this
+        # connection (flag HYBRID_CONNECTOR_AS_AGENT). Capture primitive ids first
+        # (the commit above expired ORM objects); the helper is fail-soft + idempotent.
+        # SKIP for private connections (owner_user_id set) — per-user connector
+        # clones and personal connectors own their DataSource already; spawning a
+        # public agent here duplicates them AND leaks a private source org-wide.
+        _conn_id, _org_id, _user_id = str(connection.id), str(organization.id), str(current_user.id)
+        if not owner_user_id:
+            try:
+                from app.services.connector_agent import auto_create_agent_for_connection
+                await auto_create_agent_for_connection(
+                    db, connection_id=_conn_id, organization_id=_org_id, owner_user_id=_user_id,
+                )
+            except Exception:
+                pass
+
         # Re-fetch with eager loading to avoid lazy load issues in async context
-        return await self.get_connection(db, str(connection.id), organization)
+        return await self.get_connection(db, _conn_id, organization)
 
     async def get_connection(
         self,
@@ -1081,12 +1104,11 @@ class ConnectionService:
             raise ValueError("Data source type is required")
             
         try:
-            module_name = f"app.data_sources.clients.{data_source_type.lower()}_client"
-            title = "".join(word[:1].upper() + word[1:] for word in data_source_type.split("_"))
-            class_name = f"{title}Client"
-
-            module = importlib.import_module(module_name)
-            ClientClass = getattr(module, class_name)
+            # Use the registry's configured client_path (falls back to dynamic
+            # naming internally). Deriving the class name here directly breaks on
+            # types whose class casing differs from the type slug — e.g.
+            # powerbi_user → PowerBIUserClient (not "PowerbiUserClient").
+            ClientClass = resolve_client_class(data_source_type)
 
             client_params = (config or {}).copy()
             if credentials:

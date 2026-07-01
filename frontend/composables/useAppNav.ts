@@ -108,6 +108,13 @@ export function useAppNav() {
       ],
     },
     {
+      title: 'nav.dataAgents',
+      direct: '/agents',
+      items: [
+        { key: 'data-agents', href: '/agents', activePath: '/agents', icon: 'heroicons-circle-stack', label: 'nav.dataAgents' },
+      ],
+    },
+    {
       title: 'nav.workspace',
       railHeader: { subtitle: 'Everything your agents produce', badge: 'ORG', icon: 'heroicons-squares-2x2' },
       items: [
@@ -141,6 +148,9 @@ export function useAppNav() {
         // to them + org-wide, and can self-serve build/edit their own (per-user
         // connector visibility). Create-shared/org stays gated inside the page.
         { key: 'connectors', href: '/connectors', activePath: '/connectors', icon: 'heroicons-circle-stack', label: 'Connectors', section: 'DATA' },
+        // Self-serve: any member connects an admin-published connector with their
+        // own account → private, per-user data source.
+        { key: 'available-connectors', href: '/connectors/available', activePath: '/connectors/available', icon: 'heroicons-user-plus', label: 'nav.availableConnectors', section: 'DATA' },
         { key: 'monitoring', href: '/monitoring', activePath: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true, section: 'OBSERVE' },
         { key: 'evals', href: '/evals', activePath: '/evals', icon: 'heroicons-check-circle', label: 'nav.evals', permission: 'manage_evals', section: 'OBSERVE' },
         { key: 'workflows', href: '/workflows', activePath: '/workflows', icon: 'heroicons-arrow-path', label: 'Workflows', permission: 'manage_settings', section: 'AUTOMATE' },

@@ -52,20 +52,28 @@ class MsFabricClient(DataSourceClient):
     def __init__(
         self,
         server_hostname: str,
-        database: str,
+        database: str = None,
         tenant_id: str = None,
         client_id: str = None,
         client_secret: str = None,
         schema: Optional[str] = None,
         access_token: str = None,
+        refresh_token: str = None,
     ):
         self.server_hostname = server_hostname
-        self.database = database
+        # Blank database = per-user connector template: discover the warehouses the
+        # signed-in user can access (see _accessible_databases / get_tables) instead
+        # of a fixed admin-set database.
+        self.database = database or None
         self.tenant_id = tenant_id
         self.client_id = client_id
         self.client_secret = client_secret
         self.schema = schema
         self._delegated_access_token = access_token
+        # Per-user device-code path: a stored refresh_token (FOCI public client) is
+        # redeemed for a fresh SQL-endpoint access token at connect time. No app
+        # registration, no client secret — works for MFA/guest/home accounts.
+        self._refresh_token = refresh_token
 
         # Parse comma-separated schemas if provided
         self._schemas: List[str] = []
@@ -82,6 +90,24 @@ class MsFabricClient(DataSourceClient):
         """Get Azure AD access token for SQL endpoint."""
         if self._delegated_access_token:
             return self._delegated_access_token
+
+        # Device-code per-user path: mint a fresh SQL token from the stored
+        # refresh_token (redeemable across the FOCI family → database.windows.net).
+        if self._refresh_token:
+            from app.services.powerbi_device_code import (
+                refresh_to_access_token,
+                FABRIC_TOKEN_SCOPE,
+            )
+            res = refresh_to_access_token(
+                tenant_id=self.tenant_id or "organizations",
+                refresh_token=self._refresh_token,
+                scope=FABRIC_TOKEN_SCOPE,
+            )
+            if res.get("ok") and res.get("access_token"):
+                return res["access_token"]
+            raise RuntimeError(
+                f"Could not refresh Fabric access token: {res.get('error', 'unknown error')}"
+            )
 
         credential = ClientSecretCredential(
             tenant_id=self.tenant_id,
@@ -109,10 +135,14 @@ class MsFabricClient(DataSourceClient):
             host = self.server_hostname
             if "," not in host:
                 host = f"{host},1433"
+            # Omit DATABASE= when unset (per-user template) → connect to the
+            # endpoint's default catalog; sys.databases then reveals the
+            # warehouses this user can access for discovery.
+            db_clause = f"DATABASE={self.database};" if self.database else ""
             conn_str = (
                 f"DRIVER={{ODBC Driver 18 for SQL Server}};"
                 f"SERVER={host};"
-                f"DATABASE={self.database};"
+                f"{db_clause}"
                 f"Encrypt=yes;"
                 f"TrustServerCertificate=no;"
                 f"Connection Timeout=30;"
@@ -146,11 +176,74 @@ class MsFabricClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get tables with graceful fallback if enriched query fails."""
-        try:
-            return self._get_tables_enriched()
-        except Exception:
-            return self._get_tables_basic()
+        """Get tables with graceful fallback if enriched query fails.
+
+        When no database is set (per-user connector template), discover every
+        warehouse/lakehouse the signed-in user can access and union their tables
+        — so each user's private clone syncs only what THEIR account can see, with
+        no admin-typed database. Table names are qualified `db.schema.table`.
+        """
+        if self.database:
+            try:
+                return self._get_tables_enriched()
+            except Exception:
+                return self._get_tables_basic()
+
+        out: List[Table] = []
+        for db in self._accessible_databases():
+            try:
+                out.extend(self._get_tables_for_db(db))
+            except Exception:
+                # A single inaccessible/locked warehouse must not abort the rest.
+                continue
+        return out
+
+    def _accessible_databases(self) -> List[str]:
+        """List warehouses/lakehouses the connecting principal can access on this
+        endpoint (excludes system DBs). NEEDS-LIVE-TEST against a real Fabric ws."""
+        with self.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT name FROM sys.databases "
+                "WHERE database_id > 4 AND HAS_DBACCESS(name) = 1 ORDER BY name"
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+        return [r[0] for r in rows if r and r[0]]
+
+    def _get_tables_for_db(self, database: str) -> List[Table]:
+        """Basic table+column pull for ONE database via 3-part naming (cross-db
+        within the workspace). Names qualified `db.schema.table`."""
+        tables = {}
+        with self.connect() as conn:
+            cursor = conn.cursor()
+            where = [
+                "TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA', 'queryinsights')",
+                "HAS_PERMS_BY_NAME(QUOTENAME(TABLE_SCHEMA) + '.' + QUOTENAME(TABLE_NAME), 'OBJECT', 'SELECT') = 1",
+            ]
+            sql = f"""
+                SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
+                FROM [{database}].INFORMATION_SCHEMA.COLUMNS
+                WHERE {' AND '.join(where)}
+                ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+            """
+            cursor.execute(sql)
+            results = cursor.fetchall()
+            cursor.close()
+            for row in results:
+                table_schema, table_name, column_name, data_type = row
+                key = (table_schema, table_name)
+                fqn = f"{database}.{table_schema}.{table_name}"
+                if key not in tables:
+                    tables[key] = Table(
+                        name=fqn,
+                        columns=[],
+                        pks=[],
+                        fks=[],
+                        metadata_json={"schema": table_schema, "database": database},
+                    )
+                tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
+        return list(tables.values())
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table descriptions. May fail on some configurations."""

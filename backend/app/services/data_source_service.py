@@ -310,6 +310,7 @@ class DataSourceService:
         config = data_source_dict.pop("config", None)
         is_public = data_source_dict.pop("is_public", False)
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
+        is_user_template = bool(data_source_dict.pop("is_user_template", False))
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
@@ -439,6 +440,7 @@ class DataSourceService:
             "organization_id": organization.id,
             "is_public": is_public,
             "use_llm_sync": use_llm_sync,
+            "is_user_template": is_user_template,
             "owner_user_id": current_user.id
         }
         
@@ -979,6 +981,10 @@ class DataSourceService:
                 selectinload(DataSource.connections).options(lazyload("*")),
             )
             .filter(DataSource.organization_id == organization.id)
+            # Per-user connector TEMPLATES are admin config shells (no data) —
+            # hide them from the agents list; they surface only in the dedicated
+            # "Available connectors" endpoint. Users see their own private clone.
+            .filter(DataSource.is_user_template.isnot(True))
         )
         if not show_all_effective:
             clauses = [DataSource.is_public == True]
@@ -1559,7 +1565,10 @@ class DataSourceService:
         # Merge config and creds
         config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
         creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
-        params = {**(config or {}), **(creds or {})}
+        # Strip None from creds before merge so a blank per-user field can't wipe
+        # an admin-set config value (config = admin default, creds = user override).
+        creds = {k: v for k, v in (creds or {}).items() if v is not None}
+        params = {**(config or {}), **creds}
         # Strip meta keys and oauth override keys
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
@@ -1727,7 +1736,11 @@ class DataSourceService:
                 current_user=current_user
             )
 
-            params = {**(config or {}), **(creds or {})}
+            # Strip None from creds BEFORE merging so a blank per-user field
+            # (e.g. tenant_id a user left empty) can't wipe an admin-set config
+            # value. Config = admin defaults; creds = per-user overrides.
+            creds = {k: v for k, v in (creds or {}).items() if v is not None}
+            params = {**(config or {}), **creds}
             params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
             # Narrow to constructor signature (VAR_KEYWORD-aware; see

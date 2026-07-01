@@ -1675,6 +1675,8 @@ import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
+import { useRunSound } from '~/composables/useRunSound'
+const runSound = useRunSound()
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import DecisionCard from '~/components/DecisionCard.vue'
@@ -4333,6 +4335,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// payload omits an explicit status — don't wait on [DONE]/watchdog for the spinner.
 			// Turn is fully done — clear the "forming the decision" strip.
 			decisionForming.value = false
+			runSound.playFinish()
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : 'success'
 			if (completionStatus) {
 				if (sysMessage.status !== 'error' && sysMessage.status !== 'stopped') {
@@ -5208,6 +5211,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 	currentController = new AbortController()
 	isStreaming.value = true
 	isCompletionInProgress.value = true
+	runSound.playStart()
 
 	const requestBody = {
 		prompt: {

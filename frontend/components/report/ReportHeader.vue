@@ -29,6 +29,16 @@
                 </span>
             </h1>
             <div class="ms-auto flex items-center gap-2">
+                <UTooltip :text="runSound.enabled.value ? 'Run sounds on (click to mute)' : 'Play a sound when a run starts and finishes'">
+                    <button
+                        @click="runSound.toggle()"
+                        class="hidden md:flex p-1.5 rounded items-center transition-colors"
+                        :class="runSound.enabled.value ? 'text-[#C2541E] hover:bg-[#F6EFEA]' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'"
+                        aria-label="Toggle run sounds"
+                    >
+                        <Icon :name="runSound.enabled.value ? 'heroicons:speaker-wave' : 'heroicons:speaker-x-mark'" class="w-5 h-5" />
+                    </button>
+                </UTooltip>
                 <ShareModal v-if="report" :report="report" share-type="conversation" title="Share Conversation" />
                 <UTooltip :text="isSplitScreen ? t('reportView.closeSidebar') : t('reportView.openSidebar')">
                     <button
@@ -71,6 +81,9 @@
 import { ref, watch } from 'vue'
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import ShareModal from '@/components/ShareModal.vue'
+import { useRunSound } from '~/composables/useRunSound'
+
+const runSound = useRunSound()
 
 const props = defineProps<{
     report: any | null,

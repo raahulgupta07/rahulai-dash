@@ -126,6 +126,19 @@ async def get_llm_usage(
     """Get aggregated LLM token/cost usage per model."""
     return await console_service.get_llm_usage_metrics(db, organization, params)
 
+@router.get("/console/llm-cost", response_model=dict)
+@requires_permission("manage_settings")
+async def get_llm_cost(
+    params: MetricsQueryParams = Depends(),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Cost Console: LLM spend KPIs + breakdowns (daily/model/provider/scope/agent)."""
+    return await console_service.get_llm_cost_console(
+        db, organization, params.start_date, params.end_date
+    )
+
 @router.get("/console/metrics/recent-negative-feedback", response_model=RecentNegativeFeedbackMetrics)
 @requires_permission("manage_settings")
 async def get_recent_negative_feedback(

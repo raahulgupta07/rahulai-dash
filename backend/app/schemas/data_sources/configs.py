@@ -764,10 +764,10 @@ class PowerBIConfig(BaseModel):
 
 # Power BI — user sign-in (delegated / ROPC) variant
 class PowerbiUserCredentials(BaseModel):
-    tenant_id: str = Field(
-        ...,
+    tenant_id: Optional[str] = Field(
+        None,
         title="Tenant ID",
-        description="Azure AD Tenant ID (Directory ID)",
+        description="Usually set by your admin on the connector — leave blank. Only fill this to override with your own tenant.",
         json_schema_extra={"ui:type": "string"}
     )
     username: Optional[str] = Field(
@@ -797,8 +797,15 @@ class PowerbiUserCredentials(BaseModel):
 
 
 class PowerbiUserConfig(BaseModel):
-    """Auto-discovers all workspaces and datasets the signed-in user can access."""
-    pass
+    """Auto-discovers all workspaces/datasets the signed-in user can access.
+    tenant_id is set ONCE by the admin here; each user then signs in with only
+    their own email + password (per-user credentials)."""
+    tenant_id: Optional[str] = Field(
+        None,
+        title="Tenant ID",
+        description="Azure AD Tenant (Directory) ID — set once by the admin. Users won't need to enter it. Leave blank to let each user supply their own.",
+        json_schema_extra={"ui:type": "string"}
+    )
 
 
 # Power BI Report Server (on-prem)
@@ -885,16 +892,22 @@ class MSFabricConfig(BaseModel):
         description="Fabric SQL endpoint (e.g., abc123.datawarehouse.fabric.microsoft.com)",
         json_schema_extra={"ui:type": "string"}
     )
-    database: str = Field(
-        ...,
+    database: Optional[str] = Field(
+        None,
         title="Database",
-        description="Warehouse or Lakehouse name",
+        description="Warehouse or Lakehouse name. Leave blank for per-user connector templates — each user's accessible warehouses are auto-discovered at sign-in.",
         json_schema_extra={"ui:type": "string"}
     )
     schema: Optional[str] = Field(
         None,
         title="Schema",
         description="Optional schema or comma-separated list of schemas. If empty, all schemas will be discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    tenant_id: Optional[str] = Field(
+        None,
+        title="Tenant ID (optional)",
+        description="Azure AD Tenant ID. Used for per-user device-code sign-in (connector templates). Blank = multi-tenant 'organizations' endpoint.",
         json_schema_extra={"ui:type": "string"}
     )
 

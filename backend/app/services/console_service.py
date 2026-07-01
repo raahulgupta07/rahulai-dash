@@ -1053,6 +1053,176 @@ class ConsoleService:
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
         )
 
+    async def get_llm_cost_console(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Cost Console aggregates for LLM spend, org + date scoped.
+
+        Mirrors get_llm_usage_metrics' org-join (JOIN LLMModel where
+        organization_id) + date-range pattern. Returns plain dicts (Numeric
+        cast to float) so it can be served as-is. Empty table => zeros/[].
+        """
+        from app.models.studio import Studio  # local: keep top-of-file imports untouched
+
+        start_date, end_date = self._normalize_date_range(start_date, end_date)
+
+        org_date_filter = (
+            LLMModel.organization_id == organization.id,
+            LLMUsageRecord.created_at >= start_date,
+            LLMUsageRecord.created_at <= end_date,
+        )
+        _join = lambda q: q.join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id).where(*org_date_filter)
+
+        # Per-model $/1M-token rates (OpenRouter-ish). Used to ESTIMATE cost from
+        # real tokens when a row's stored cost is 0 (the recorder captures tokens
+        # but not price). If a row already has a real total_cost_usd, use that.
+        from sqlalchemy import case
+        mid = LLMUsageRecord.model_id
+        _in_rate = case(
+            (mid.ilike("%gemini%flash%lite%"), 0.04),
+            (mid.ilike("%gemini-3%"), 0.10),
+            (mid.ilike("%gemini%flash%"), 0.075),
+            (mid.ilike("%gemini%"), 0.30),
+            (mid.ilike("%haiku%"), 1.0),
+            (mid.ilike("%sonnet%"), 3.0),
+            (mid.ilike("%opus%"), 15.0),
+            (mid.ilike("%glm%"), 0.20),
+            (mid.ilike("%gpt%mini%"), 0.15),
+            (mid.ilike("%gpt%"), 2.5),
+            (mid.ilike("%minimax%"), 0.30),
+            (mid.ilike("%qwen%"), 0.20),
+            else_=0.5,
+        )
+        _out_rate = case(
+            (mid.ilike("%gemini%flash%lite%"), 0.15),
+            (mid.ilike("%gemini-3%"), 0.40),
+            (mid.ilike("%gemini%flash%"), 0.30),
+            (mid.ilike("%gemini%"), 2.50),
+            (mid.ilike("%haiku%"), 5.0),
+            (mid.ilike("%sonnet%"), 15.0),
+            (mid.ilike("%opus%"), 75.0),
+            (mid.ilike("%glm%"), 0.60),
+            (mid.ilike("%gpt%mini%"), 0.60),
+            (mid.ilike("%gpt%"), 10.0),
+            (mid.ilike("%minimax%"), 1.20),
+            (mid.ilike("%qwen%"), 0.60),
+            else_=1.5,
+        )
+        _est_in = LLMUsageRecord.prompt_tokens / 1000000.0 * _in_rate
+        _est_out = LLMUsageRecord.completion_tokens / 1000000.0 * _out_rate
+        # per-row cost: real captured cost if present, else the token×rate estimate
+        _row_cost = case((LLMUsageRecord.total_cost_usd > 0, LLMUsageRecord.total_cost_usd), else_=_est_in + _est_out)
+        _row_in = case((LLMUsageRecord.input_cost_usd > 0, LLMUsageRecord.input_cost_usd), else_=_est_in)
+        _row_out = case((LLMUsageRecord.output_cost_usd > 0, LLMUsageRecord.output_cost_usd), else_=_est_out)
+
+        cost_expr = func.coalesce(func.sum(_row_cost), 0)
+        tokens_expr = func.coalesce(
+            func.sum(
+                LLMUsageRecord.prompt_tokens
+                + LLMUsageRecord.completion_tokens
+                + LLMUsageRecord.cache_read_tokens
+                + LLMUsageRecord.cache_creation_tokens
+            ),
+            0,
+        )
+
+        # --- KPIs ------------------------------------------------------------
+        kpi_row = (await db.execute(_join(select(
+            func.coalesce(func.sum(_row_cost), 0).label("total_cost"),
+            func.coalesce(func.sum(_row_in), 0).label("input_cost"),
+            func.coalesce(func.sum(_row_out), 0).label("output_cost"),
+            func.coalesce(func.sum(LLMUsageRecord.prompt_tokens), 0).label("prompt_tokens"),
+            func.coalesce(func.sum(LLMUsageRecord.completion_tokens), 0).label("completion_tokens"),
+            func.coalesce(func.sum(LLMUsageRecord.cache_read_tokens), 0).label("cache_read_tokens"),
+            func.coalesce(func.sum(LLMUsageRecord.cache_creation_tokens), 0).label("cache_creation_tokens"),
+            func.count(LLMUsageRecord.id).label("total_calls"),
+        )))).one()
+
+        total_calls = int(kpi_row.total_calls or 0)
+        total_cost = float(kpi_row.total_cost or 0)
+        kpis = {
+            "total_cost": total_cost,
+            "input_cost": float(kpi_row.input_cost or 0),
+            "output_cost": float(kpi_row.output_cost or 0),
+            "prompt_tokens": int(kpi_row.prompt_tokens or 0),
+            "completion_tokens": int(kpi_row.completion_tokens or 0),
+            "cache_read_tokens": int(kpi_row.cache_read_tokens or 0),
+            "cache_creation_tokens": int(kpi_row.cache_creation_tokens or 0),
+            "total_calls": total_calls,
+            "avg_cost_per_call": (total_cost / total_calls) if total_calls else 0.0,
+        }
+
+        # --- Daily -----------------------------------------------------------
+        day_col = func.date(LLMUsageRecord.created_at)
+        daily_rows = (await db.execute(
+            _join(select(day_col.label("day"), cost_expr.label("cost")))
+            .group_by(day_col).order_by(day_col)
+        )).all()
+        daily = [{"date": str(r.day), "cost": float(r.cost or 0)} for r in daily_rows]
+
+        # --- By model --------------------------------------------------------
+        model_rows = (await db.execute(
+            _join(select(
+                LLMModel.name.label("model_name"),
+                LLMUsageRecord.model_id.label("model_id"),
+                LLMUsageRecord.provider_type.label("provider_type"),
+                cost_expr.label("cost"),
+                func.count(LLMUsageRecord.id).label("calls"),
+                tokens_expr.label("tokens"),
+            ))
+            .group_by(LLMModel.name, LLMUsageRecord.model_id, LLMUsageRecord.provider_type)
+            .order_by(cost_expr.desc()).limit(20)
+        )).all()
+        by_model = [{
+            "model_name": r.model_name,
+            "model_id": r.model_id,
+            "provider_type": r.provider_type,
+            "cost": float(r.cost or 0),
+            "calls": int(r.calls or 0),
+            "tokens": int(r.tokens or 0),
+        } for r in model_rows]
+
+        # --- By provider -----------------------------------------------------
+        provider_rows = (await db.execute(
+            _join(select(LLMUsageRecord.provider_type.label("provider_type"), cost_expr.label("cost")))
+            .group_by(LLMUsageRecord.provider_type).order_by(cost_expr.desc()).limit(20)
+        )).all()
+        by_provider = [{"provider_type": r.provider_type, "cost": float(r.cost or 0)} for r in provider_rows]
+
+        # --- By scope (the feature: chat/dashboard/forecast/...) -------------
+        scope_rows = (await db.execute(
+            _join(select(LLMUsageRecord.scope.label("scope"), cost_expr.label("cost")))
+            .group_by(LLMUsageRecord.scope).order_by(cost_expr.desc()).limit(20)
+        )).all()
+        by_scope = [{"scope": r.scope, "cost": float(r.cost or 0)} for r in scope_rows]
+
+        # --- By agent (scope_ref_id is a Report id => Report.studio_id => Studio) ---
+        # scope_ref_id holds str(report.id) at every labeled call site; join to
+        # the report's studio to get a human agent name. Records whose
+        # scope_ref_id isn't a report (or NULL) simply don't join => omitted.
+        agent_rows = (await db.execute(
+            _join(select(Studio.name.label("agent_name"), cost_expr.label("cost")))
+            .join(Report, Report.id == LLMUsageRecord.scope_ref_id)
+            .join(Studio, Studio.id == Report.studio_id)
+            .group_by(Studio.name).order_by(cost_expr.desc()).limit(20)
+        )).all()
+        by_agent = [{"agent_name": r.agent_name, "cost": float(r.cost or 0)} for r in agent_rows]
+
+        return {
+            "kpis": kpis,
+            "daily": daily,
+            "by_model": by_model,
+            "by_provider": by_provider,
+            "by_scope": by_scope,
+            "by_user": [],  # not derivable: no user id is stored in scope/scope_ref_id
+            "by_agent": by_agent,
+            "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
+        }
+
     async def get_top_users_metrics(
         self,
         db: AsyncSession,

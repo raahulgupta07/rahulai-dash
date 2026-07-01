@@ -93,6 +93,20 @@
             <span class="text-xs text-gray-700">Require user authentication</span>
           </div>
 
+          <!-- Per-user template: publish this connector so each member self-registers with their own account. -->
+          <div v-if="isCreateMode || isCreateConnectionOnly" class="flex items-start gap-2 mb-2 mt-2">
+            <input
+              id="is_user_template"
+              type="checkbox"
+              v-model="is_user_template"
+              class="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#C2541E] focus:ring-[#C2541E]"
+            />
+            <label for="is_user_template" class="text-xs text-gray-700 leading-snug">
+              Make this a per-user template
+              <span class="block text-[11px] text-gray-400">Each member connects with their own account — only the data their account can access is synced, privately to them.</span>
+            </label>
+          </div>
+
           <!-- OAuth credential overrides (only visible when user auth is enabled) -->
           <template v-if="!credentialsLocked && require_user_auth && oauthCredentialFields.length">
             <div class="border-t border-gray-200 mt-3 pt-3">
@@ -259,6 +273,10 @@ function initKeyValueFields() {
 }
 const selectedAuth = ref<string | undefined>(undefined)
 const is_public = ref(false)
+// Per-user template: when true, this connection is published as a template that
+// each org member self-registers against with their OWN credentials (private,
+// per-user sync). Backend DataSourceCreate accepts `is_user_template`.
+const is_user_template = ref(false)
 const require_user_auth = ref(Boolean(props.initialRequireUserAuth))
 const use_llm_onboarding = ref(true)
 const submitting = ref(false)
@@ -519,6 +537,7 @@ async function onSubmit() {
       config: { ...formData.config, auth_type: selectedAuth.value || undefined },
       credentials: showSystemCredentialFields.value ? cleanCredentials(formData.credentials) : {},
       is_public: is_public.value,
+      is_user_template: is_user_template.value,
       auth_policy: auth_policy.value,
       generate_summary: use_llm_onboarding.value,
       generate_conversation_starters: use_llm_onboarding.value,

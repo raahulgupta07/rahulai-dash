@@ -154,6 +154,10 @@ class DataSourceSchema(DataSourceBase):
     publish_status: str = "published"
     use_llm_sync: bool = False
     owner_user_id: Optional[str] = None
+    # Per-user connector: marks a config-shell template + links a private clone
+    # back to the template it was registered from (per_user_connector).
+    is_user_template: bool = False
+    template_source_id: Optional[str] = None
     git_repository: Optional[GitRepositorySchema] = None
     memberships: Optional[List[DataSourceMembershipSchema]] = []
 
@@ -239,6 +243,9 @@ class DataSourceCreate(DataSourceBase):
     is_public: bool = False
     use_llm_sync: bool = False
     member_user_ids: Optional[List[str]] = []  # User IDs to grant access to
+    # Per-user connector template: admin config shell (no user creds, no data).
+    # Members self-register against it → private per-user clones. Default False.
+    is_user_template: bool = False
 
     @validator('credentials')
     def validate_credentials(cls, v, values):

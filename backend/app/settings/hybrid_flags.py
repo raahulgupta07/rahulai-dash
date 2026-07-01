@@ -121,6 +121,8 @@ UPGRADE_FLAGS: dict[str, dict[str, str]] = {
     "HYBRID_DLT_INGEST": {"label": "Robust Ingest (dlt)", "role": "agent", "category": "Core", "status": "experimental", "note": "dlt → DuckDB file + idempotent merge by period+content-hash. OFF = pandas path."},
     "HYBRID_FULL_PIPELINE": {"label": "Full Pipeline (15 stages)", "role": "agent", "category": "Core", "status": "experimental", "note": "Quality-gate + golden/answer eval + hybrid-index + brain-graph in one train. See NEWPIPE.md."},
     "HYBRID_POWERBI_USER": {"label": "Power BI Connector (User Sign-in)", "role": "user", "category": "Connectors", "status": "experimental", "note": "Adds a Power BI semantic-model connector that signs in with email+password (ROPC) — no app registration. Needs MFA off + Build permission on the datasets. Default OFF."},
+    "HYBRID_CONNECTOR_AS_AGENT": {"label": "Connector → Data Agent (auto)", "role": "admin", "category": "Connectors", "status": "experimental", "note": "When an admin connects a data source, auto-create an org-shared agent (Studio) bound to it, so every member can chat it immediately. For user_required connectors (e.g. Power BI user sign-in) each member signs in with their own account. Default OFF."},
+    "HYBRID_PER_USER_CONNECTOR": {"label": "Per-User Connector (self-register)", "role": "admin", "category": "Connectors", "status": "experimental", "note": "Admin configures a connector template once (tenant/client, no creds). Each member registers with their own email+password → gets a PRIVATE copy with their own synced tables (not shared org-wide). Each builds their own analysis. Microsoft/source access control enforced per user. Default OFF."},
     "HYBRID_SEMANTIC_SEARCH": {"label": "Hybrid Search (FTS + embeddings)", "role": "agent", "category": "Intelligence", "status": "experimental", "note": "Uses your OpenRouter key for embeddings (text-embedding-3-small). After enabling, click Rebuild search index."},
 
     # --- Agents & Access --------------------------------------------------
@@ -1009,6 +1011,22 @@ class HybridFlags:
         return _bool("HYBRID_POWERBI_USER", False)
 
     @property
+    def CONNECTOR_AS_AGENT(self) -> bool:
+        # On connector-create, auto-spawn an org-shared Studio (agent) bound to
+        # the connection, so every member can chat it with no manual setup.
+        # Default OFF.
+        return _bool("HYBRID_CONNECTOR_AS_AGENT", False)
+
+    @property
+    def PER_USER_CONNECTOR(self) -> bool:
+        # Admin marks a connector as a per-user TEMPLATE (tenant/client config,
+        # no user creds). Each member registers with their own credentials →
+        # cloned into a private owner-scoped DataSource with their OWN synced
+        # catalog (isolated: is_public=False + owner_user_id + MS access control).
+        # Default OFF.
+        return _bool("HYBRID_PER_USER_CONNECTOR", False)
+
+    @property
     def GOLDEN_QUERIES(self) -> bool:
         # Wave1 P4: promote thumbs-up / repeat-success learned queries to golden;
         # golden ranks first in coder injection. Default OFF.
@@ -1112,6 +1130,8 @@ class HybridFlags:
             "DLT_INGEST": self.DLT_INGEST,
             "FULL_PIPELINE": self.FULL_PIPELINE,
             "POWERBI_USER": self.POWERBI_USER,
+            "CONNECTOR_AS_AGENT": self.CONNECTOR_AS_AGENT,
+            "PER_USER_CONNECTOR": self.PER_USER_CONNECTOR,
             "GOLDEN_QUERIES": self.GOLDEN_QUERIES,
             "VERIFIED_METRICS": self.VERIFIED_METRICS,
             "SEMANTIC_SEARCH": self.SEMANTIC_SEARCH,

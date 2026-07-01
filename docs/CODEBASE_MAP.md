@@ -5,7 +5,33 @@
 > Companion: `CLAUDE.md` (rules/current state), `DEVLOG.md` (dated history), `ROADMAP.md` (forward plan),
 > `docs/INGEST_BRAIN_DESIGN.md` (F09 universal-ingest design).
 > **Keep current:** when a ship changes a load-bearing path/pattern, update this file (same habit as DEVLOG bump).
-> Last verified: 2026-07-01 · `VERSION_HYBRID` 1.65.0 · mig head `defreg1`.
+> Last verified: 2026-07-01 · `VERSION_HYBRID` 1.69.5 · mig head `peruser_tmpl1`.
+> v1.69.1–5: PowerBI (User Sign-in) LIVE in hub (`powerbi_user`); admin no-typed-DB (`MSFabricConfig.database`
+> optional + `MsFabricClient._accessible_databases`/`_get_tables_for_db`, NEEDS-LIVE-TEST); COMPACT tiles + ⚙gear;
+> Connections chips REMOVED; NEW `pages/connectors/manage.vue`. LANDMINES: private (owner_user_id) conns must skip
+> the CONNECTOR_AS_AGENT hook (`if not owner_user_id:` in create_connection — else dupe+public-leak);
+> `_resolve_client_by_type`→`resolve_client_class` (client_path, not name-derive); per-user connect
+> `create_connection(validate=False)` (empty PowerBI catalog must not hard-fail).
+> v1.69.0: **MS Connectors Hub on `/agents`** (BAKED, rollback `pre-connector-hub-revamp`) — admin configs a
+> Fabric TEMPLATE once (`is_user_template=True` DataSource + `auth_policy=user_required` Connection), each user
+> signs in via **device-code** (FOCI `1950a258…`, no app-reg) → private per-user clone syncs under their token.
+> `powerbi_device_code.py` scope-parametric + `refresh_to_access_token()`; `MsFabricClient(refresh_token=)` mints
+> Fabric SQL token→ODBC `attrs_before={1256}`. Routes **`/api/connectors/*`** (`device-code/{start,poll}` +
+> `available` + `register`; router NO prefix, main.py adds `/api`). FE `components/connectors/ConnectorsMsHub.vue`
+> (explicit import) top of `pages/agents/index.vue`. Flag `HYBRID_PER_USER_CONNECTOR`. Detail → memory
+> `project_cityagent_ms_connector_hub`.
+> v1.67.0: **Data Agents page** (bagofwords parity) — `/agents` (DataSource=agent: list/create/connection/tables/
+> context/tools/queries/evals/monitoring) surfaced in TOP nav between Studios & Workspace (`useAppNav.ts` `direct:'/agents'`,
+> top-bar-only). `services/connector_agent.py` reworked: connector-connect → DataSource `is_public=True` (flag
+> `HYBRID_CONNECTOR_AS_AGENT`, Studio path REMOVED). `is_public` (see agent, `get_data_sources:983`) + `user_required`
+> (own login) = admin connects once → whole org chats, each as self. Supersedes v1.66 Studio.
+> v1.66.0: **Connector → Data Agent** (flag `HYBRID_CONNECTOR_AS_AGENT`) — on connection-create,
+> `services/connector_agent.py::auto_create_agent_for_connection` auto-spawns an org-shared Studio
+> bound to the connection (idempotent via `Studio.config.source_connection_id`, greenlet-safe, fail-soft;
+> hooked in `connection_service.create_connection`). Power BI `tenant_id` moved to `PowerbiUserConfig`
+> (admin sets once), optional in creds; `construct_client(s)` strip None-from-creds pre-merge so a blank
+> per-user field can't wipe the admin tenant. Phases 3-5 = reuse (org-list, `ReportAgentPanel` sign-in
+> gate, per-user `resolve_credentials`). Flag ON org 7d372305.
 > v1.65.0: Power BI P3 device-code sign-in (MFA-safe, BAKED) — `services/powerbi_device_code.py` (start/poll,
 > offline_access→refresh_token), routes `POST /data_sources/{id}/my-credentials/device-code/{start,poll}`
 > (poll-success persists Fernet refresh_token), `PowerBIUserClient.refresh_token` + refresh-grant in `connect()`,
