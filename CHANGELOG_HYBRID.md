@@ -9,6 +9,76 @@ Bullet rules (this is the user-facing "What's new" feed):
     Hidden from the popover; shown collapsed on the full /changelog page only.
 Every shipped feature bumps `VERSION_HYBRID` and adds an entry here.
 
+## v1.71.2 — Fix blank clarifying-question boxes  (2026-07-01)
+- When the agent asks a clarifying question, the question text now always shows (before, you sometimes saw empty answer boxes with no question).
+  - Root cause: planner prompt told the model to use a `question` string, but the clarify tool schema wants `questions: [{text, options}]` → weak models emitted plain strings → `ClarifyTool.vue` read `q.text` = undefined → blank boxes. Fixed in 3 layers:
+  - FE `components/tools/ClarifyTool.vue`: `questions` computed normalizes each item (string → `{text}`, object → coerce `text`/`question`/`label`), drops empty — never renders an unlabeled box.
+  - Backend `app/ai/tools/schemas/clarify.py`: `@field_validator('questions', mode='before')` coerces strings/alt-keys → `{text}` and drops empties before validation.
+  - Backend `app/ai/agents/planner/prompt_builder_v3.py`: rewrote the "how to write a clarify call" block to match the schema — `questions` is an array of `{text, options}`, put the question in `text`, choices in `options` (+"Other…"), don't embed lists in text; added a worked example.
+
+## v1.71.1 — Data Agents selectable in the report picker  (2026-07-01)
+- The New Report context picker now lists your Data Agents (Power BI, Fabric, files…) directly — pick one to ground a report on it, alongside Agent Studios and Auto.
+  - FE `components/prompt/DataSourceSelector.vue`: the Data-Agents + connectable sections were gated behind `!STUDIOS_ONLY` (hardcoded `true`) → hidden. Dropped that gate so both render: Context(Auto) + Agent Studios + **Data Agents** (new eyebrow, no duplicate Auto) + connectable. Selected-label branch (line 16) now yields to a chosen data source. `toggleDataSource` already clears any pinned studio + persists to the report.
+
+## v1.71.0 — Personal agent view + auto-learn on connect  (2026-07-01)
+- The Data Agents list now shows only YOUR agents — signing in to one source no longer surfaces everyone else's samples/demos.
+- When you sign in to a connector, the new agent now teaches itself automatically — it writes its own description, suggested questions, and a data overview (tables, joins, rules) — just like building a data agent with "Use LLM to learn agent". Fills in a few seconds after sign-in.
+  - FE `pages/agents/index.vue`: `allAgents` now also drops public agents you don't own — keep if `!is_public` OR `owner_user_id === myUserId` (from `useAuth()`), on top of the existing `!is_user_template` filter.
+  - Backend: connector clone now created with `use_llm_sync=True`; new `per_user_connector.autolearn_clone(clone_id, org_id, user_id)` opens its own session (`async_session_maker`) and calls `DataSourceService.llm_sync` → description + conversation_starters + primary overview instruction (`DataSourceAgent.generate_datasource_instruction`). Scheduled via `BackgroundTasks` on the `/connectors/{id}/device-code/poll` route after a successful sign-in, so the response stays instant. Fail-soft.
+
+## v1.70.3 — Agent rail: exact Workspace/AppRail parity  (2026-07-01)
+- The agent sidebar now looks identical to the Workspace/Manage sidebar — same card, colors, spacing, icons, and active-item style.
+  - FE `layouts/data.vue`: replaced the bespoke rail with an exact copy of `components/nav/AppRail.vue`'s `.cag-rail-card` sectioned variant. Shell `flex bg-[#F1ECE3]` (full-width, not centered max-w-7xl); rail = 240px `#FBFAF6` border `#E9E0D3` radius-16 `m-2`; header card `px-3 pt-3 pb-2.5 border-b`, icon tile `w-7 h-7 #F4F1EA`, serif name + `#EDEBE3/#6b6b6b` "Connected" badge + `#9a958c` email subtitle; nav `.cag-eyebrow`/`.cag-sec-link`/`.cag-sec-active` (active bg `#ECEAE1` text `#1f2328`, icon `#8c8479`→active `#C2541E`), per-tab heroicons via `tabIcon()`, plain `#9a958c` counts. Main = `#FBFAF6` rounded card (`my-2 me-2 px-6/8 py-6`). Test/Disconnect are `.cag-sec-link` items under a "Connection" eyebrow (Disconnect `.cag-sec-danger`). Scoped CSS copied verbatim from AppRail. Learned via an Explore scout mapping AppRail/useAppNav/default.vue.
+
+## v1.70.2 — Agent detail redesign: left-rail (Manage style) + Disconnect  (2026-07-01)
+- The agent page now has a left sidebar like the Manage page: your source's logo + name + email at top, all the tabs grouped (Explore / Configure / Observe) down the side, and Test / Disconnect buttons at the bottom.
+- New "Disconnect" button removes your private agent and sign-in in one click — your data stays in Microsoft, and you can sign in again anytime.
+- The phantom admin connector template no longer shows as a Data Agent card (v1.70.1).
+  - FE `layouts/data.vue`: horizontal tab bar → sticky left rail. `tabGroups` groups the existing `tabs` computed into Explore(''/tables/queries) · Configure(context/tools/settings) · Observe(monitoring/evals). `connectorMeta` (clone `template_source_id` + conn type → product logo/name/email) drives the rail identity. `testConn` → GET `/data_sources/{id}/test_connection`; `disconnect` → DELETE `/data_sources/{id}` then DELETE each `/connections/{connId}` (owner-guarded), routes to `/agents`. Disconnect gated on `isClone`. Main column keeps PublishStatusControl + New Report + inline description + `<slot/>`. `.rail-btn` styles added.
+  - FE `pages/agents/index.vue` (v1.70.1): `allAgents` filters `is_user_template` so connector templates never render as agent cards.
+  - FE `pages/agents/[id]/index.vue`: Overview content `md:w-2/3` → full width (fits the narrower main column).
+
+## v1.70.0 — One-click connector agents (auto name, logo, tables)  (2026-07-01)
+- Signing in to a Microsoft source now creates your agent instantly — no wizard. All the tables your account can see are switched on for you automatically, and you land straight in the ready agent.
+- Your agents show the real product name and logo (Microsoft Fabric, Power BI, SharePoint, OneDrive) with your signed-in email underneath — no more blank "d"/"r" names.
+- The manual Create-Data-Agent button and the "show all" toggle are gone from this page; agents come from the connector tiles above.
+  - Backend: `per_user_connector.DataSourceService_seed` now auto-activates ALL synced tables (`max_auto_select=100000`) — the sign-in already scoped the catalog to what the user can read, so activating everything is correct + private.
+  - FE `pages/agents/index.vue`: `connectorMeta(ds)` maps a clone's `template_source_id` + first connection `type` → product logo (`/data_sources_icons/*.png`) + clean name + email subtitle. Removed the show-all toggle, Create-Agent button, ghost card, and the now-unused `DataSourceGrid` import / `canCreateDataSource` / `canViewAllAgents`. Section gated on `allAgents.length > 0` with a new empty state pointing to the hub. i18n `data.agentsAutoHint`/`signedInPrivate`/`emptyNoAgents`/`emptyNoAgentsHint`.
+
+## v1.69.1 — Power BI (User Sign-in) live + no admin-typed database  (2026-07-01)
+- Power BI (User Sign-in) is now live in the connector hub — sign in with your own account, your datasets come back automatically.
+- Admins no longer type a database. When you sign in, the warehouses/datasets your own account can access are discovered for you — each person sees only their own.
+  - FE: PowerBI tile `live` (type `powerbi_user`), per-connector admin config (Fabric = server + tenant; Power BI = tenant only; database field removed). i18n `connectors.autoDbNote`/`configureName`.
+  - Backend: `MSFabricConfig.database` → optional; `MsFabricClient` connects without a fixed DATABASE when blank and auto-discovers accessible warehouses (`_accessible_databases` via `sys.databases`/`HAS_DBACCESS`, `_get_tables_for_db` 3-part `[db].INFORMATION_SCHEMA`), qualifying tables `db.schema.table`. NEEDS-LIVE-TEST against a real multi-warehouse Fabric workspace.
+
+## v1.69.0 — Microsoft Connectors Hub on Data Agents (Fabric, per-user sign-in)  (2026-07-01)
+- The Data Agents page now has a Microsoft Connectors strip on top. Your admin sets up a connector once; you sign in with your own Microsoft account using a short code — no password typing, works even with multi-factor sign-in.
+- Microsoft Fabric is live first. Sign in, and only the tables your account can see sync to your own private agent.
+- Admins can both set up a connector AND connect their own account to test it, right from the page.
+- Power BI, SharePoint and OneDrive tiles show as "coming soon" (same one-click sign-in path).
+  - Backend: `powerbi_device_code.py` made scope-parametric (`SCOPE_FABRIC`/`SCOPE_GRAPH`) + `refresh_to_access_token()` mints a `database.windows.net` SQL token from a stored refresh_token (FOCI public client `1950a258…`, no app registration). `MsFabricClient` gained a `refresh_token` param → re-mints the SQL token per connect and feeds it to ODBC via `attrs_before={1256}`.
+  - `per_user_connector.py`: `device_code_start` / `device_code_poll` (poll-success auto-registers the private clone). Routes `POST /api/connectors/{template_id}/device-code/{start,poll}` in `routes/data_source.py`.
+  - Config: `MSFabricConfig.tenant_id` (optional) for device-code templates. Schema `DataSourceSchema` exposes `is_user_template` + `template_source_id`.
+  - FE: new `components/connectors/ConnectorsMsHub.vue` (tiles + admin-config modal + device-code connect modal + test), mounted top of `pages/agents/index.vue` (explicit import). i18n `connectors.*`. Flag `HYBRID_PER_USER_CONNECTOR`.
+  - Live-proven: device-code start against Microsoft returns a real user_code with the Fabric SQL scope; ODBC Driver 18 present in-container; tester `scratchpad/fabric_devicecode_test.py`.
+
+## v1.67.0 — Data Agents page + connect-once agents for the whole org  (2026-07-01)
+- New **Data Agents** in the top nav (between Studios and Workspace) — the bagofwords-style page where a connected data source IS an agent (connection · tables · context · tools · queries · evals · monitoring).
+- An admin connects a source once → it appears as a Data Agent for **everyone**; each person signs in with their own account and sees only their own data (Power BI keeps the admin-set tenant, users enter only email+password).
+  - **Nav:** `useAppNav.ts` adds a `direct: '/agents'` group titled `nav.dataAgents` → renders on the TOP bar only (no left rail, like Studios). fe-synced.
+  - **Connector → org-visible agent (reworked):** `services/connector_agent.py::auto_create_agent_for_connection` now (flag `HYBRID_CONNECTOR_AS_AGENT`) ensures the connection's DataSource is `is_public=True` (default `publish_status='published'`) — **dropped the Studio**; the DataSource IS the `/agents` agent. `filter`/list query (`data_source_service.py:983`) shows any `is_public` source to every member. Idempotent, greenlet-safe, fail-soft.
+  - **All else reused (no code):** `/agents` list=data-sources, agent-home→chat (`/reports` with the DS attached), per-user sign-in gate (`agents/[id]/connection.vue` + list `needsUserConnection`), per-user creds at query (`resolve_credentials` by `user_id`).
+  - Baked `cityagent-analytics:v1.67.0`, flag ON org 7d372305, rollback `pre-dataagent-rollback`. Live-proven: connection create → org-visible data agent, idempotent, non-member sees it.
+  - Supersedes v1.66.0's Studio-based auto-agent (that path removed — the `/agents` DataSource surface is the one true Data Agent).
+
+## v1.66.0 — Connect a data source, get an agent everyone can chat  (2026-07-01)
+- An admin connects a data source once — it instantly becomes an agent the whole org can chat. No building an agent by hand.
+- For Power BI, the admin sets the tenant once; each person then signs in with their own account and sees only the data they're allowed to.
+  - **Phase 1 · central tenant:** `tenant_id` moved to `PowerbiUserConfig` (admin sets once); optional in `PowerbiUserCredentials` (users enter only email+password). Hardened `construct_client`/`construct_clients` with a pre-merge None-strip on creds so a blank per-user field can't wipe the admin's config tenant.
+  - **Phase 2 · connector → agent:** new `services/connector_agent.py::auto_create_agent_for_connection` — on connection-create (flag `HYBRID_CONNECTOR_AS_AGENT`), auto-spawns an org-shared Studio bound to a DataSource wrapping the connection. Idempotent (marker `config.source_connection_id`), greenlet-safe, fail-soft. Hooked into `connection_service.create_connection`.
+  - **Phases 3-5 · reuse (no new code):** org-shared studios already list for every member (`list_studios` `share_scope=='org'`); the chat's per-user sign-in gate already fires for `user_required` agents (`ReportAgentPanel.needsUserConnection`); per-user creds + Power BI access + isolated overlay already enforced (`resolve_credentials` by `user_id`).
+  - Baked `cityagent-analytics:v1.66.0`, flag ON org 7d372305, rollback `pre-connector-agent-rollback`. Live-proven: connection create → org-shared agent, idempotent, visible to non-owner.
+
 ## v1.65.0 — Power BI: sign in with a code, even with 2FA  (2026-07-01)
 - Connect Power BI even when your account has multi-factor auth on — pick "Sign in with a code", approve on your phone, done. No password stored.
 - Stays connected without asking you to log in again every hour.

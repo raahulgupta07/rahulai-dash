@@ -8,8 +8,11 @@
             </div>
 
             <div v-else>
-                <!-- Data Agents Section - show if there are data agents or connections -->
-                <div v-if="allAgents.length > 0 || connections.length > 0" class="mb-6">
+                <!-- Microsoft Connectors Hub (per-user, device-code) -->
+                <ConnectorsMsHub :agents="allAgents" @refresh="refreshData" />
+
+                <!-- Data Agents Section - show once the user has any agent -->
+                <div v-if="allAgents.length > 0" class="mb-6">
                     <!-- Header: title + subtitle (left), primary actions top-right (canonical) -->
                     <div class="flex items-start justify-between gap-4">
                         <div>
@@ -20,27 +23,7 @@
                                 <GoBackChevron v-if="isExcel" />
                                 {{ $t('data.agentsTitle') }}
                             </h1>
-                            <p class="mt-2 text-[#6b6b6b] leading-relaxed max-w-2xl">{{ $t('data.agentsSubtitle') }}</p>
-                        </div>
-
-                        <div class="flex items-center gap-3 shrink-0">
-                            <UTooltip
-                                v-if="canViewAllAgents"
-                                :text="$t('data.showAllAgentsHint')"
-                            >
-                                <label class="inline-flex items-center gap-2 text-xs text-[#6b6b6b] cursor-pointer select-none">
-                                    <UToggle v-model="showAllAgents" size="2xs" />
-                                    {{ $t('data.showAllAgents') }}
-                                </label>
-                            </UTooltip>
-                            <button
-                                v-if="canCreateDataSource && connections.length > 0"
-                                class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl bg-[#C2541E] text-white hover:bg-[#A8330F] disabled:opacity-50 whitespace-nowrap transition-colors"
-                                @click="navigateTo('/agents/new')"
-                            >
-                                <UIcon name="i-heroicons-plus" class="w-4 h-4" />
-                                {{ $t('data.createAgent') }}
-                            </button>
+                            <p class="mt-2 text-[#6b6b6b] leading-relaxed max-w-2xl">{{ $t('data.agentsAutoHint') }}</p>
                         </div>
                     </div>
 
@@ -90,31 +73,42 @@
                             <component :is="userHasAccess(ds) ? NuxtLink : 'div'" :to="userHasAccess(ds) ? `/agents/${ds.id}` : undefined" class="block">
                                 <!-- Top row: clay icon tile + connection status pill -->
                                 <div class="flex items-start justify-between gap-2 mb-3">
-                                    <div class="w-10 h-10 rounded-xl bg-[#F4EEE5] border border-[#E9E0D3] flex items-center justify-center">
+                                    <!-- Connector clones show the Microsoft product logo; file/DB
+                                         agents keep the generic clay tile. -->
+                                    <div class="w-10 h-10 rounded-xl bg-white border border-[#E9E0D3] flex items-center justify-center p-1.5" v-if="connectorMeta(ds)">
+                                        <img :src="connectorMeta(ds).logo" :alt="connectorMeta(ds).name" class="w-full h-full object-contain" />
+                                    </div>
+                                    <div v-else class="w-10 h-10 rounded-xl bg-[#F4EEE5] border border-[#E9E0D3] flex items-center justify-center">
                                         <UIcon name="i-heroicons-circle-stack" class="w-5 h-5 text-[#C2541E]" />
                                     </div>
-                                    <div
-                                        v-if="userHasAccess(ds)"
-                                        class="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium rounded-full text-[#3f9e6a] bg-[#eef6f0] border border-[#d7ebde]"
-                                    >
-                                        <span class="w-1.5 h-1.5 rounded-full bg-[#3f9e6a]"></span>
-                                        {{ $t('data.connected') }}
-                                    </div>
-                                    <div
-                                        v-else
-                                        class="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium rounded-full text-[#6b6b6b] bg-[#F4EEE5] border border-[#E9E0D3]"
-                                    >
-                                        <span class="w-1.5 h-1.5 rounded-full bg-[#9a958c]"></span>
-                                        {{ $t('data.disconnected') }}
-                                    </div>
+                                    <!-- Connect-state pill only for CONNECTOR agents (user_required).
+                                         Plain file/warehouse agents (CSV, DuckDB…) always have their
+                                         data — no "connect" concept, so no pill. -->
+                                    <template v-if="requiresUserAuth(ds)">
+                                        <div
+                                            v-if="userHasAccess(ds)"
+                                            class="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium rounded-full text-[#3f9e6a] bg-[#eef6f0] border border-[#d7ebde]"
+                                        >
+                                            <span class="w-1.5 h-1.5 rounded-full bg-[#3f9e6a]"></span>
+                                            {{ $t('data.connected') }}
+                                        </div>
+                                        <div
+                                            v-else
+                                            class="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium rounded-full text-[#6b6b6b] bg-[#F4EEE5] border border-[#E9E0D3]"
+                                        >
+                                            <span class="w-1.5 h-1.5 rounded-full bg-[#9a958c]"></span>
+                                            {{ $t('data.disconnected') }}
+                                        </div>
+                                    </template>
                                 </div>
 
-                                <!-- Name + badges -->
+                                <!-- Name + badges. Connector clones show the clean product
+                                     name; the signed-in identity moves to a subtitle. -->
                                 <div class="flex items-center gap-1.5 mb-1">
                                     <span
                                         class="text-[#1f2328] text-base leading-tight"
                                         style="font-family: 'Spectral', ui-serif, Georgia, serif"
-                                    >{{ ds.name }}</span>
+                                    >{{ connectorMeta(ds) ? connectorMeta(ds).name : ds.name }}</span>
                                     <UTooltip v-if="ds.admin_only" :text="$t('data.adminOnlyHint')">
                                         <span class="text-[9px] font-medium uppercase tracking-wide text-[#C2541E] bg-[#F4EEE5] border border-[#E9E0D3] px-1.5 py-0.5 rounded">{{ $t('data.adminOnlyTag') }}</span>
                                     </UTooltip>
@@ -123,8 +117,13 @@
                                     </UTooltip>
                                 </div>
 
+                                <!-- Connector clone → signed-in identity as subtitle -->
+                                <p v-if="connectorMeta(ds)" class="mt-1 text-xs text-[#6b6b6b] leading-relaxed truncate">
+                                    <span v-if="connectorMeta(ds).subtitle">{{ connectorMeta(ds).subtitle }}</span>
+                                    <span v-else class="text-[#9a958c]">{{ $t('data.signedInPrivate') }}</span>
+                                </p>
                                 <!-- Description (2 lines max) -->
-                                <p v-if="ds.description" class="mt-1 text-xs text-[#6b6b6b] leading-relaxed line-clamp-2">
+                                <p v-else-if="ds.description" class="mt-1 text-xs text-[#6b6b6b] leading-relaxed line-clamp-2">
                                     {{ ds.description }}
                                 </p>
                                 <p v-else class="mt-1 text-xs text-[#9a958c] italic">
@@ -163,20 +162,6 @@
                             </div>
                         </div>
 
-                        <!-- Ghost card: New Data Agent -->
-                        <button
-                            v-if="canCreateDataSource && connections.length > 0"
-                            @click="navigateTo('/agents/new')"
-                            class="flex flex-col items-start p-5 rounded-2xl border border-dashed border-[#E9E0D3] bg-transparent text-start transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C2541E]/40 hover:bg-white cursor-pointer"
-                        >
-                            <div class="w-10 h-10 mb-3 rounded-xl bg-[#F4EEE5] border border-[#E9E0D3] flex items-center justify-center">
-                                <UIcon name="i-heroicons-plus" class="w-5 h-5 text-[#C2541E]" />
-                            </div>
-                            <span
-                                class="text-[#1f2328] text-base leading-tight"
-                                style="font-family: 'Spectral', ui-serif, Georgia, serif"
-                            >{{ $t('data.createAgent') }}</span>
-                        </button>
                     </div>
 
                     <!-- Empty state for search with no results -->
@@ -189,48 +174,24 @@
                     </div>
                 </div>
 
-                <!-- Connections Section -->
-                <div class="mb-6">
-                    <div class="flex items-center justify-between mb-1">
-                        <h1
-                            class="text-xl text-[#1f2328]"
-                            style="font-family: 'Spectral', ui-serif, Georgia, serif"
-                        >{{ $t('data.connectionsTitle') }}</h1>
-                        <button
-                            v-if="canCreateDataSource"
-                            @click="selectedDataSourceType = undefined; showAddConnectionModal = true"
-                            class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-xl bg-white border border-[#E9E0D3] text-[#1f2328] hover:bg-[#F4EEE5] hover:border-[#C2541E]/40 transition-colors"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 me-1" />
-                            {{ $t('data.addConnection') }}
-                        </button>
-                    </div>
-                    <p class="text-[#6b6b6b] mb-3">{{ $t('data.subtitle') }}</p>
-
-                    <!-- Connection chips (when connections exist) -->
-                    <div v-if="connections.length > 0" class="flex flex-wrap items-center gap-2">
-                        <button
-                            v-for="conn in connections"
-                            :key="conn.id"
-                            @click="openConnectionDetail(conn)"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border border-[#E9E0D3] bg-white text-[#6b6b6b] hover:bg-[#F4EEE5] hover:border-[#C2541E]/40 transition-all"
-                        >
-                            <DataSourceIcon class="h-3.5" :type="conn.type" />
-                            <span>{{ conn.name }}</span>
-                            <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-[#3f9e6a]' : 'bg-red-500']"></span>
-                        </button>
-                    </div>
-
-                    <!-- Empty state when no connections - show data source grid -->
-                    <div v-else-if="canCreateDataSource">
-                        <DataSourceGrid
-                            :show-demos="true"
-                            :navigate-on-demo="false"
-                            @select="handleDataSourceSelect"
-                            @demo-installed="handleDemoInstalled"
-                        />
+                <!-- Empty state: no agents yet → point to the connector hub above -->
+                <div v-else-if="!loading" class="mb-6">
+                    <h1
+                        class="text-[32px] font-medium text-[#211B14] tracking-tight"
+                        style="font-family: 'Spectral', ui-serif, Georgia, serif"
+                    >{{ $t('data.agentsTitle') }}</h1>
+                    <p class="mt-2 text-[#6b6b6b] leading-relaxed max-w-2xl">{{ $t('data.agentsAutoHint') }}</p>
+                    <div class="mt-5 py-14 text-center border border-dashed border-[#E9E0D3] rounded-2xl bg-[#FCFAF6]">
+                        <div class="inline-flex w-11 h-11 mx-auto mb-3 items-center justify-center rounded-xl bg-[#F4EEE5] border border-[#E9E0D3] text-[#C2541E]">
+                            <UIcon name="i-heroicons-arrow-up" class="w-6 h-6" />
+                        </div>
+                        <h3 class="text-[15px] font-semibold text-[#1f2328]" style="font-family: 'Spectral', ui-serif, Georgia, serif">{{ $t('data.emptyNoAgents') }}</h3>
+                        <p class="mt-1 text-sm text-[#9a958c]">{{ $t('data.emptyNoAgentsHint') }}</p>
                     </div>
                 </div>
+
+                <!-- (Connections chips section removed — connectors are managed via
+                     the Microsoft hub tiles + Manage connectors page.) -->
             </div>
 
             <!-- Connection Detail Modal -->
@@ -258,7 +219,7 @@ import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
-import DataSourceGrid from '~/components/datasources/DataSourceGrid.vue'
+import ConnectorsMsHub from '~/components/connectors/ConnectorsMsHub.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import {
@@ -296,8 +257,22 @@ const searchQuery = ref('')
 
 const loading = computed(() => loadingConnected.value || loadingDemos.value || loadingConnections.value)
 
-// All agents
-const allAgents = computed(() => connected_ds.value || [])
+// Current user id — used to show only the viewer's OWN agents (hide public/org
+// demos + other people's agents from this personal view).
+const { data: currentUser } = useAuth()
+const myUserId = computed(() => (currentUser.value as any)?.id || null)
+
+// All agents. Two filters:
+//  1. Connector TEMPLATES (is_user_template) are admin config shells, not usable
+//     agents — they live in the hub tiles above, never as a card.
+//  2. Personal view: keep only agents YOU own (owner_user_id === me) or private
+//     agents; hide public/org demos you don't own (e.g. the Financial Market
+//     sample) so signing in to one source doesn't surface everyone else's work.
+const allAgents = computed(() => (connected_ds.value || []).filter((ds: any) => {
+    if (ds.is_user_template) return false
+    if (!ds.is_public) return true                    // your private agents + clones
+    return !!myUserId.value && ds.owner_user_id === myUserId.value
+}))
 
 // Uninstalled demo data sources
 const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
@@ -314,6 +289,27 @@ const filteredAgents = computed(() => {
         ds.description?.toLowerCase().includes(query)
     )
 })
+
+// Map a per-user connector clone → its Microsoft product logo + clean name.
+// A clone carries `template_source_id`; its first connection's type tells us
+// which product. The signed-in email (stored as "<Product> · email") becomes
+// the card subtitle so the card reads "Power BI / demo@test.com" not "d".
+const CONNECTOR_META: Record<string, { logo: string; name: string }> = {
+    ms_fabric: { logo: '/data_sources_icons/ms_fabric.png', name: 'Microsoft Fabric' },
+    ms_fabric_user: { logo: '/data_sources_icons/ms_fabric.png', name: 'Microsoft Fabric' },
+    powerbi: { logo: '/data_sources_icons/powerbi.png', name: 'Power BI' },
+    powerbi_user: { logo: '/data_sources_icons/powerbi.png', name: 'Power BI' },
+    sharepoint: { logo: '/data_sources_icons/sharepoint.png', name: 'SharePoint' },
+    onedrive: { logo: '/data_sources_icons/onedrive.png', name: 'OneDrive' },
+}
+function connectorMeta(ds: any): { logo: string; name: string; subtitle: string } | null {
+    if (!ds?.template_source_id) return null
+    const type = ds.connections?.[0]?.type || ds.type
+    const m = CONNECTOR_META[type]
+    if (!m) return null
+    const subtitle = (ds.name || '').includes('·') ? String(ds.name).split('·').pop()!.trim() : ''
+    return { ...m, subtitle }
+}
 
 function getTableCount(ds: any): number {
     // Sum table counts from all connections
@@ -591,19 +587,10 @@ function stopPolling() {
 
 onBeforeUnmount(() => stopPolling())
 
-const canCreateDataSource = computed(() => useCan('create_data_source'))
-
-// Org-wide data-source governance: full admins and connection admins. Gates
-// the "show all" toggle. useCan already treats full_admin_access as a bypass,
-// so this is true for both. Per-DS `manage` does NOT grant it.
-const canViewAllAgents = computed(() => useCan('manage_connections'))
-
-// Admin "show all" toggle state — when on, the list includes private data
-// sources the admin isn't a member of (flagged with an Admin badge).
+// Agents are created automatically from a Microsoft sign-in above; the manual
+// "show all" toggle and Create-Agent button were retired with that revamp.
+// showAllAgents stays false — kept only so the fetch URL below is unchanged.
 const showAllAgents = ref(false)
-watch(showAllAgents, () => {
-    getConnectedDataSources()
-})
 
 onMounted(async () => {
     nextTick(async () => {

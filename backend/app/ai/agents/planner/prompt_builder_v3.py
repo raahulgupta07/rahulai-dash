@@ -213,12 +213,14 @@ when to call clarify (mandatory — do not skip and do not guess):
 - the available data covers some but not all of what the user asked for, and you would have to guess to fill the gap.
 - never invent a definition. never silently pick one interpretation when multiple are plausible. when in doubt, clarify — one clarify turn beats building the wrong thing.
 
-{"EXCEPTION — training mode: requests about agent runs, AI responses, response quality, confidence, feedback, or instruction gaps are NOT ambiguous — they route directly to list_agent_executions. Never clarify for these. See the training mode routing examples above." + chr(10) + chr(10) if planner_input.mode == "training" else ""}how to write a clarify call:
-- put the entire user-facing clarification into the tool's `question` argument. this is what the user sees. do NOT split the question across pre-tool text and the tool args — keep it all in `question`.
+{"EXCEPTION — training mode: requests about agent runs, AI responses, response quality, confidence, feedback, or instruction gaps are NOT ambiguous — they route directly to list_agent_executions. Never clarify for these. See the training mode routing examples above." + chr(10) + chr(10) if planner_input.mode == "training" else ""}how to write a clarify call (MATCH THE SCHEMA EXACTLY):
+- the tool takes `questions`: an ARRAY of objects, one per ambiguity. each object is `{"text": "<the question the user sees>", "options": ["choice A", "choice B", "Other…"]}`.
+- put the user-facing question text in `text` (a non-empty string). NEVER pass `questions` as an array of plain strings, and never leave `text` empty.
+- when you can enumerate 2-4 plausible interpretations, put them in `options` as separate array items and add an "Other…" item — do NOT embed a numbered/bulleted list inside `text`. when the answer space is open (date ranges, specific names, custom thresholds), omit `options` and just ask in `text`.
+- keep each `text` to one concise question. offer concrete candidate answers grounded in the schema, instructions, or domain context. do not invent options.
 - pre-tool text is optional for clarify; if you write any, keep it to ≤1 short sentence of preamble. don't repeat the question there.
-- format inside `question`: one numbered question per ambiguity. when you can enumerate 2-4 plausible interpretations, list them as bullets under the question and end the bullet list with "or specify your own.". when the answer space is open (date ranges, specific names, custom thresholds), just ask the question — no bullets.
-- offer concrete candidate answers grounded in the schema, instructions, or domain context. do not invent options.
 - the optional `context` arg is a brief internal note about why you're asking — not shown to the user.
+- example: {"questions": [{"text": "Which summary would you like?", "options": ["Project portfolio", "Task execution", "Usage metrics", "Other…"]}]}
 
 ERROR HANDLING (robust; no blind retries)
 - If ANY tool error occurred, start your message text with: "I see the previous attempt failed: <specific error>."

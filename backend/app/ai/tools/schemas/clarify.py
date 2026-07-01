@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ClarifyQuestion(BaseModel):
@@ -35,6 +35,30 @@ class ClarifyInput(BaseModel):
         None,
         description="Brief internal note about why clarification is needed (not shown to the user).",
     )
+
+    @field_validator("questions", mode="before")
+    @classmethod
+    def _coerce_questions(cls, v):
+        """Weak models sometimes emit ``questions`` as plain strings (or objects
+        keyed ``question``/``label`` instead of ``text``). Coerce each entry to
+        the ``{text, options}`` shape and drop empties so the UI never renders an
+        unlabeled, dead-end box. Kept lenient — validation of the coerced dicts
+        (incl. the ``text`` min_length) still runs afterward."""
+        if not isinstance(v, list):
+            return v
+        out = []
+        for item in v:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    out.append({"text": text})
+            elif isinstance(item, dict):
+                text = (item.get("text") or item.get("question") or item.get("label") or "")
+                if isinstance(text, str) and text.strip():
+                    out.append({**item, "text": text.strip()})
+            else:
+                out.append(item)
+        return out
 
 
 class ClarifyOutput(BaseModel):

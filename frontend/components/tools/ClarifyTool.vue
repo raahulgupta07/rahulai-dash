@@ -146,9 +146,24 @@ const props = withDefaults(
 const storageKey = computed(() => `clarify:${props.toolExecution.id}`)
 const status = computed(() => props.toolExecution.status)
 
-const questions = computed<ClarifyQuestion[]>(
-  () => props.toolExecution?.arguments_json?.questions ?? []
-)
+// Normalize the raw tool-call args. `arguments_json.questions` is whatever the
+// model emitted — a weak model sometimes returns plain STRINGS (or objects with
+// `question`/`label` instead of `text`) instead of the `{text, options}` shape.
+// Coerce every item to `{text, options}` and drop truly-empty ones so the form
+// never renders an unlabeled, dead-end text box.
+const questions = computed<ClarifyQuestion[]>(() => {
+  const raw = props.toolExecution?.arguments_json?.questions
+  const list = Array.isArray(raw) ? raw : []
+  return list
+    .map((q: any): ClarifyQuestion => {
+      if (typeof q === 'string') return { text: q }
+      if (q && typeof q === 'object') {
+        return { text: q.text ?? q.question ?? q.label ?? '', options: q.options }
+      }
+      return { text: '' }
+    })
+    .filter((q) => (q.text ?? '').trim().length > 0)
+})
 
 const persistedResponse = computed<ClarifyResponse | null>(
   () => props.toolExecution?.result_json?.user_response ?? null

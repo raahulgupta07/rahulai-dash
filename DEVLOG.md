@@ -1601,3 +1601,152 @@ The last real gap in the per-user Power BI connector: ROPC (email+password) dies
 - **PROVEN live end-to-end:** started device-code vs SG tenant `0a8a4f2c` → user approved in browser (MS "signed in to Azure PowerShell" confirmation) → `poll_device_code` returned success + refresh_token → constructed `PowerBIUserClient(tenant_id, refresh_token)` → `list_workspaces()` = [MSFB_POC, HUB-AI, DataAgent_TestRun]. Backend `import main` clean, both routes registered, FE UI baked into `_nuxt` dist.
 - **BAKED** `cityagent-analytics:dev` = `:v1.65.0` (full `docker build` + force-recreate), rollback `pre-p3-rollback` (=v1.64.0). VERSION_HYBRID 1.65.0, mig head unchanged `defreg1`, flag `HYBRID_POWERBI_USER` ON org 7d372305, NOT git-pushed. Now ANY Power BI user (MFA or not, any tenant, guest or home) can self-connect. Remaining backlog: none critical (device-code covers MFA; refresh-token storage now done inline).
 - **Standalone tester:** `scratchpad/pbi_devicecode_app.py` (stdlib :8901) — 3 sign-in paths (device-code / email+password ROPC / find-my-tenants) → scan (queryable-tagged) → DAX runner. Tokens in-memory only. For handing to other users to self-test.
+
+## 2026-07-01 — Connector → Data Agent (bagofwords-style, Phases 1-6) (v1.66.0, BAKED)
+"Connect a data source once → it becomes an org-shared agent everyone chats; each user signs in with their own account and sees only their own data." Built as 6 phases; only Phases 1-2 needed new code (3-5 reuse existing machinery — the payoff of Studio=agent + per-user connectors).
+- **Phase 1 — central tenant on connector:** `PowerbiUserConfig` gains `tenant_id` (admin sets ONCE); `PowerbiUserCredentials.tenant_id` → Optional (users enter only email+pw). **Correctness guard:** `construct_client`+`construct_clients` (`data_source_service.py`) now strip `None` from creds BEFORE the `{**config, **creds}` merge, so a blank per-user field can't wipe the admin's config tenant (a real bug the recon flagged: the old post-merge None-strip would delete a creds-`None`-over-config value entirely). Live-proven: admin config tenant preserved when user omits it; user tenant override still wins. FE = zero change (ConnectForm + UserDataSourceCredentialsModal are schema-driven; `/data_sources/{type}/fields` returns both config+creds).
+- **Phase 2 — connector auto-becomes an agent:** NEW `services/connector_agent.py::auto_create_agent_for_connection(db, *, connection_id, organization_id, owner_user_id)` — flag `HYBRID_CONNECTOR_AS_AGENT`; ensures a DataSource wraps the connection (reuse-first, mirrors `activate_studio_connector`), creates `Studio(share_scope='org', config={source_connection_id, connector_agent:True})`, binds `StudioDataSource`. Idempotent (skip if a studio already carries `source_connection_id`), greenlet-safe (primitive ids, re-query fresh, own commits), fail-soft (never breaks connect). Hooked into `connection_service.create_connection` right before the return (captures `str(id)` up-front). Flag = 3 anchors in `hybrid_flags.py`. Live E2E: create `powerbi_user` connection → org-shared agent spawned, DataSource-bound, marker set, 2nd call idempotent (same studio id).
+- **Phase 3 — appears for all (no code):** `list_studios` (`routes/studio.py:370`) visibility already `or_(owner, share_scope=='org', member, group)`. Live-proven: a non-owner, non-member uid sees the org-shared agent.
+- **Phase 4 — per-user sign-in gate (no code):** `ReportAgentPanel.vue:63` shows a **Connect** button when `needsUserConnection(agent)` (= `auth_policy=='user_required' && !has_user_credentials`, `useDataSourceConnect.ts:22`) → opens `UserDataSourceCredentialsModal` (email+pw, tenant now optional). `@saved` → refresh → gate clears.
+- **Phase 5 — per-user query + access (no code):** `resolve_credentials` (`data_source_service.py:1524`) picks the caller's OWN `UserDataSourceCredentials WHERE user_id==current_user.id`; merged with admin config tenant → `PowerBIUserClient` runs as that user → Microsoft enforces their RLS/item perms. Overlay reads scoped `UserOverlayTable.user_id` → isolated catalogs.
+- **Phase 6 — BAKED** `cityagent-analytics:dev` = `:v1.66.0` (full docker build), rollback `pre-connector-agent-rollback` (=v1.65.0). VERSION_HYBRID 1.66.0, mig head unchanged `defreg1` (no migration — Studio.config is JSON), flag `HYBRID_CONNECTOR_AS_AGENT` ON via DB override org 7d372305, NOT git-pushed. Deferred (cosmetic): Studio card "Data Agent" badge from `config.connector_agent` marker (Phase 3.2/3.3).
+- Files: `configs.py`, `data_source_service.py`, `settings/hybrid_flags.py`, NEW `services/connector_agent.py`, `services/connection_service.py`. Mockups: `scratchpad/data_agents_page.html` + `dataagent_chat_full.html`.
+
+## 2026-07-01 — Data Agents page (bagofwords parity) + connector→org-visible-agent (v1.67.0, BAKED)
+Reconciled the "connector → data agent" work onto the RIGHT surface. Our fork already had the full bagofwords Data Agents page at `/agents` (DataSource = agent: list · create · connection · tables · context · tools · queries · evals · monitoring · settings) — it was just NOT in the nav and admin-connected sources weren't org-visible. Two subagents (disjoint) + verification.
+- **Nav (top bar):** `frontend/composables/useAppNav.ts` — added a group `{title:'nav.dataAgents', direct:'/agents', items:[data-agents → /agents]}` placed BETWEEN Studios and Workspace. `direct` groups render on the TOP bar only and are excluded from the left rail (`activeGroup = visibleGroups.find(g => !g.direct && isGroupActive(g))`, line 203) — so Data Agents is top-only like Studios. fe-synced (EPHEMERAL until bake).
+- **Connector → org-visible Data Agent (reworked `services/connector_agent.py`):** dropped the v1.66 Studio auto-create entirely. `auto_create_agent_for_connection(db,*,connection_id,organization_id,owner_user_id)` (flag `HYBRID_CONNECTOR_AS_AGENT`) now ensures a DataSource wraps the connection with **`is_public=True`** (existing DS → flip is_public; else create `DataSource(is_public=True, use_llm_sync=False, owner_user_id)` + append conn, IntegrityError name-clash fallback `{name}-{id[:8]}`, mirrors `routes/studio_sources.py:557`). Returns `str(ds.id)`. Idempotent by construction (2nd call finds public DS, no-op), greenlet-safe (primitive ids, re-query fresh), fail-soft. Hook in `connection_service.create_connection` unchanged (same fn name/signature).
+- **WHY is_public = the whole feature:** `data_source_service.get_data_sources` list query (line 983-987) shows a member any DataSource where `is_public==True OR id in member_ids` (admin `show_all` bypass; `publish_status` default `'published'` passes the line-996 gate). So `is_public=True` = org-visible on `/agents` for everyone. Combined with `auth_policy='user_required'` → everyone SEES the agent, each signs in with their OWN creds (per-user login gate `agents/[id]/connection.vue` + list `needsUserConnection`), and queries run under that user (`resolve_credentials` picks `UserDataSourceCredentials WHERE user_id==current_user.id`, `:1524`). = admin connects once → whole org chats it, each as themselves.
+- **Verified (subagent B, no gaps) + LIVE E2E:** create `powerbi_user` connection (flag ON) → org-visible data agent (`is_public=True`, `publish_status=published`), idempotent (dsid1==dsid2), non-member sees it via the is_public filter. /agents list=data-sources, agent-home `/agents/[id]` = guiding instruction + starter prompts + "New report scoped to this agent" (POST `/reports` `data_sources:[agentId]` → chat), per-user sign-in gate + per-user query creds all AUTO-WORK.
+- **BAKED** `:dev`=`:v1.67.0`, rollback `pre-dataagent-rollback` (=v1.66.0). VERSION_HYBRID 1.67.0, mig head unchanged `defreg1`, flag ON org 7d372305, NOT git-pushed. **Supersedes v1.66 Studio auto-agent** (removed). Files: `useAppNav.ts`, `services/connector_agent.py` (rewrite). Detail → memory `project_cityagent_connector_as_agent`.
+
+## 2026-07-01 — v1.69.0 Microsoft Connectors Hub on Data Agents (Fabric, per-user device-code)
+Revamp of `/agents` into a Microsoft-connector hub. Admin configures a connector template ONCE; every
+member (and the admin) signs in with their OWN Microsoft account via MFA-safe device-code → private
+per-user clone syncs the tables their account can see. Fabric-first; PowerBI/SharePoint/OneDrive queued
+(same path). Built on the existing per-user connector primitives (flag `HYBRID_PER_USER_CONNECTOR`,
+ON org 7d372305). EPHEMERAL (hot-cp backend + fe-sync) — bake pending.
+- **P1 device-code token** (`services/powerbi_device_code.py`): added `scope` param to `start_device_code`
+  + scope consts `SCOPE_POWERBI/SCOPE_FABRIC/SCOPE_GRAPH` + `FABRIC_TOKEN_SCOPE`, and
+  `refresh_to_access_token(tenant, refresh_token, scope)` — redeems a FOCI refresh_token for a fresh token
+  at any Microsoft resource (PowerBI refresh_token → Fabric `database.windows.net` SQL token). Client
+  `1950a258…`, no app registration, no secret.
+- **P2 Fabric client** (`data_sources/clients/ms_fabric_client.py`): `MsFabricClient.__init__` gained
+  `refresh_token`; `_get_access_token` mints a fresh SQL token from it (per connect → never expires) and
+  feeds ODBC via `attrs_before={1256}`. Zero coupling — both build paths (`construct_client`,
+  `_resolve_client_by_type`) narrow to the constructor sig, so `refresh_token` in creds forwards
+  automatically. `create_connection(system_only)` validates by a live connect (not pydantic) → a raw
+  `{refresh_token}` dict flows through.
+- **P3 register + routes**: `per_user_connector.device_code_start/device_code_poll` (poll-success →
+  `register_template_for_user(auth_mode='device_code', credentials={refresh_token})` → private clone +
+  catalog sync under the user's token). Routes `POST /api/connectors/{template_id}/device-code/{start,poll}`
+  (`routes/data_source.py`). Tenant/scope derived from the template's connection config.
+- **P4/P5 FE**: new `components/connectors/ConnectorsMsHub.vue` — 4 tiles (Fabric live), role-gated admin
+  `Manage connectors` (publishes an `is_user_template` Fabric template via POST /data_sources,
+  `auth_policy=user_required`), device-code connect modal (start → poll loop → auto-register), test-clone
+  button. Mounted top of `pages/agents/index.vue` (EXPLICIT import — Nuxt `<Connectors*>` prefix landmine).
+  i18n block `connectors.*` (locales/en.json, repo root). Flag read from `GET /organization/hybrid-flags`
+  (list) row `PER_USER_CONNECTOR.effective`. Schema: `MSFabricConfig.tenant_id` (optional),
+  `DataSourceSchema.is_user_template`+`template_source_id`.
+- **P6 tester** `scratchpad/fabric_devicecode_test.py` — in-container device-code → mint SQL token → ODBC
+  connect → list tables + test query. Compiles in-container, ODBC Driver 18 present.
+- **LIVE PROOF**: `start_device_code(<SG tenant>, scope=SCOPE_FABRIC)` returned a real `user_code` +
+  `login.microsoft.com/device` — full Fabric device-code plumbing works against Microsoft (only the human
+  browser approval remains). Routes live (`/api/connectors/*` = 401 unauth). FE hub + i18n confirmed in the
+  `nuxt generate` bundle; `/agents` = 200.
+- **LANDMINE**: connector routes mount at `/api/connectors/*` (router has NO prefix; `main.py` adds `/api`;
+  the route strings are `/connectors/...`, NOT `/data_sources/connectors/...`). ODBC needs `,1433` +
+  `Connection Timeout=30` (already in the client). Admin app-login creds (`admin@cityagent.io`) did NOT
+  match `Admin12345`/`CityAgent#2026` this session → API E2E done via in-container product code instead.
+- Backup of the pre-revamp Data Agents page: `backups/agents-page-2026-07-01/` (27 files).
+
+## 2026-07-01 — v1.69.1–1.69.5 MS Connectors Hub follow-ups (PowerBI live, no-typed-DB, dupe fix, page redesign)
+- **v1.69.1** Power BI (User Sign-in) LIVE in hub (`powerbi_user`, tenant-only config). Admin no longer types a
+  database: `MSFabricConfig.database` → Optional; `MsFabricClient` connects with no fixed DATABASE when blank +
+  `_accessible_databases()` (`sys.databases`/`HAS_DBACCESS`) + `_get_tables_for_db()` (3-part `[db].INFORMATION_SCHEMA`,
+  names `db.schema.table`). **NEEDS-LIVE-TEST vs a real multi-warehouse Fabric workspace.** Per-connector admin config
+  (Fabric=server+tenant, PowerBI=tenant only), database field removed. i18n `connectors.autoDbNote`/`configureName`.
+- **v1.69.2** BUG: `_resolve_client_by_type` (connection_service) derived class names algorithmically
+  (`powerbi_user`→`PowerbiUserClient`) but the class is `PowerBIUserClient`. FIX: call `resolve_client_class`
+  (registry `client_path`, dynamic fallback). Fixes every type whose class casing ≠ slug.
+- **v1.69.3** per-user connect FAIL-SOFT: PowerBI on-prem/empty datasets → DAX "databases which have at least one
+  table" → schema-empty was HARD-FAILING connect. Added `create_connection(validate=False)`; `per_user_connector`
+  passes it (device-code already proved identity; empty catalog syncs best-effort). This account's PowerBI = on-prem/Abf
+  (0 queryable) → agent 0 tables EXPECTED; real data = Fabric SQL endpoint.
+- **v1.69.4** DUPLICATE-CLONE ROOT CAUSE + logos + pill. The `HYBRID_CONNECTOR_AS_AGENT` hook in
+  `create_connection` (`auto_create_agent_for_connection`) fired on the per-user PRIVATE clone connection → spawned a
+  2nd **public** DataSource (is_public=true = org leak) on the SAME connection → 2 cards from 1 sign-in. FIX: guard
+  `if not owner_user_id:` — private/owner-scoped connections never auto-spawn a public agent. Also: real MS product
+  LOGOS in tiles (`/data_sources_icons/{ms_fabric,powerbi,sharepoint,onedrive}.png`); connect/Connected pill hidden on
+  non-connector (file/duckdb) agents (`v-if="requiresUserAuth(ds)"`). DB cleanup: deleted stray public `1f71ffb6` +
+  dupe `d9a3be7a` + shared connection `97e6a0c2` (datasource_tables col = `datasource_id`; report_data_source_association FK).
+- **v1.69.5** PAGE REDESIGN. COMPACT connector tiles + **⚙ gear = configure** (no big Configure button); **Connections
+  chips section REMOVED** from `pages/agents/index.vue`; NEW full **Manage connectors** page `pages/connectors/manage.vue`
+  (table connector·tenant·status·members-connected·Configure/Edit; new=POST `/data_sources`, edit=PUT `/data_sources/{id}`
+  config). "Manage connectors" btn → `navigateTo('/connectors/manage')`. i18n `connectors.manage*`/`col*`.
+- All EPHEMERAL (hot-cp backend + fe-sync) then `docker commit` → baked `:v1.69.5`=`:dev`, tags v1.69.0..5, rollback
+  `pre-connector-hub-revamp`. **NOT git-pushed** (v1.59→1.69.5 all local — top risk).
+- **PENDING (D):** agent-detail (`agents/[id]/index.vue`) redesign = keep tabs + left connection summary + chat-first bar
+  (user-approved, NOT yet built).
+
+## 2026-07-01 — v1.70.0 One-click connector agents (auto name/logo/tables)
+Sign-in IS agent creation — the manual 3-step wizard (`/agents/new`) is bypassed for MS sources. Per-user isolation
+unchanged: each user signs in with own device-code → own refresh_token → sync runs as that user → MS returns only
+tables that identity can read → private `is_public=False` owner-scoped clone (`template_source_id` set, v1.69.4 hook
+guard intact). U1's tables never visible to U2.
+- Backend `services/per_user_connector.py` `DataSourceService_seed`: `max_auto_select` 30 → **100000** = auto-activate
+  ALL synced tables (no manual Select-Tables pick; catalog already scoped by sign-in). Modal already redirects to
+  `/agents/{clone_id}` on poll-success.
+- FE `pages/agents/index.vue`: NEW `connectorMeta(ds)` — clone (`template_source_id`) + first-connection `type` →
+  `CONNECTOR_META` map → product **logo** (`/data_sources_icons/{ms_fabric,powerbi,sharepoint,onedrive}.png`) +
+  clean **name** ("Microsoft Fabric"/"Power BI"/…) + signed-in **email** subtitle (parsed from `name.split('·')`).
+  Card top-tile shows `<img logo>` for clones (else clay circle-stack); file/DuckDB unchanged. REMOVED: show-all
+  toggle, Create-Agent button, ghost "+" card, unused `DataSourceGrid` import + `canCreateDataSource`/`canViewAllAgents`
+  computeds. Section gated `allAgents.length > 0`; NEW empty state (arrow-up → hub). i18n `data.agentsAutoHint`/
+  `signedInPrivate`/`emptyNoAgents`/`emptyNoAgentsHint`.
+- Deploy EPHEMERAL (backend hot-cp py_compile OK, no restart — lazy import; FE fe-sync, page 200, new keys in bundle
+  `D1HcABxQ.js`). Baked `docker commit` → `:v1.70.0`=`:dev`. **NOT git-pushed** (v1.59→1.70.0 all local — top risk).
+
+## 2026-07-01 — v1.70.1 hide connector template + v1.70.2 agent-detail left-rail
+- **v1.70.1:** admin connector TEMPLATE (`is_user_template=True`, e.g. `50f51834` "Power BI (User Sign-in)") was rendering
+  as a phantom Data Agent card → looked like "configuring created an agent" + blocked re-config. FIX: `pages/agents/index.vue`
+  `allAgents` filters `!ds.is_user_template`. Baked `:v1.70.1`.
+- **v1.70.2:** agent-detail redesign into Manage-page style. TABS live in `layouts/data.vue` (NOT `[id]/index.vue`, which is
+  only Overview content via `<slot/>`). Moved horizontal tab bar → **sticky LEFT RAIL**: identity (logo/name/email/Connected
+  via `connectorMeta` — same CONNECTOR_META map as index.vue) + tabs grouped by `tabGroups` (Explore=''/tables/queries ·
+  Configure=context/tools/settings · Observe=monitoring/evals, filtered through existing perm-gated `tabs`) + lifecycle
+  buttons. **Test** → GET `/data_sources/{id}/test_connection`. **Disconnect** (gated `isClone` = `template_source_id` set)
+  → DELETE `/data_sources/{id}` (cascades tables/memberships, leaves conn orphaned) THEN DELETE each `/connections/{connId}`
+  (owner-guarded `guard_owned_connection`) → routes `/agents`. Main col keeps PublishStatusControl + New Report + inline
+  description + `<slot/>`. `[id]/index.vue` Overview `md:w-2/3`→full. `.rail-btn` scoped styles. Baked `:v1.70.2`=`:dev`.
+  Scouts (2 parallel Explore) mapped layout + delete endpoints. **NOT git-pushed** (v1.59→1.70.2 all local — top risk).
+
+## 2026-07-01 — v1.70.3 AppRail parity + v1.71.0 personal view + auto-learn
+- **v1.70.3:** agent rail = verbatim copy of `components/nav/AppRail.vue` `.cag-rail-card` (Workspace/Manage parity). Learned via Explore scout (AppRail/useAppNav/default.vue). `layouts/data.vue` scoped CSS `.cag-rail-card`/`.cag-eyebrow`/`.cag-sec-link`/`.cag-sec-active`(#ECEAE1) copied; shell `flex bg-[#F1ECE3]`; main `#FBFAF6` card; `tabIcon()` heroicons. HARDCODED replica (per-id tabs don't fit static `useAppNav.ts`). Baked `:v1.70.3`.
+- **v1.71.0 — two features:**
+  - **A personal view:** `pages/agents/index.vue` `allAgents` drops public agents you don't own (keep `!is_public` OR `owner_user_id===myUserId` from `useAuth()`), plus existing `!is_user_template`. Fixes "why do I see others' agents" — Financial Market demo (`is_public`) hidden; your private clones/files kept.
+  - **B auto-learn on connect:** clone now `use_llm_sync=True`; NEW `per_user_connector.autolearn_clone(clone_id, org_id, user_id)` opens own session (`async_session_maker`) → `DataSourceService.llm_sync` (description + conversation_starters + primary overview instruction via `DataSourceAgent.generate_datasource_instruction`, the "R_OVERVIEW"). Scheduled via `BackgroundTasks` on `/connectors/{id}/device-code/poll` route AFTER a success (sign-in stays instant). Fail-soft. Route sig changed → `docker restart ca-app`. `llm_sync` (`data_source_service.py:630`) is the exact same routine the manual wizard's "Use LLM to learn agent" runs. Baked `:v1.71.0`. **NOT git-pushed** (v1.59→1.71.0 all local — top risk).
+
+## 2026-07-02 — v1.71.1 data agents in report picker + v1.71.2 clarify-shape fix + auto-learn backfill
+- **v1.71.1:** Data Agents were hidden from the New-Report context picker. `components/prompt/DataSourceSelector.vue`
+  had `const STUDIOS_ONLY = true` gating the whole data-agents list behind `!STUDIOS_ONLY`. Dropped the gates so the
+  dropdown shows BOTH Studios + **Data Agents** (new "Data Agents" eyebrow; connectable section `v-if` on length;
+  selected-label branch now `(isAutoMode || STUDIOS_ONLY) && …length===0`). Baked `:v1.71.1`.
+- **v1.71.2 — blank clarifying-question boxes ("just text box, no question").** ROOT CAUSE = prompt/schema shape
+  mismatch: `ai/agents/planner/prompt_builder_v3.py` (~L217) told the model to emit a singular `question` STRING, but
+  the clarify tool schema wants `questions: [{text, options}]`. Weak/Auto models followed the prompt → emitted plain
+  strings → stored raw in `tool_executions.arguments_json` → `ClarifyTool.vue` read `q.text` = undefined → unlabeled
+  dead-end box. DB-confirmed (`{"questions": ["Which summary…string…"]}`). Fixed in 3 layers (user picked "All three"):
+  (A) FE `ClarifyTool.vue` `questions` computed normalizes each item (string→`{text}`, object→coerce
+  `text`/`question`/`label`) and DROPS empties; (B) BE `ai/tools/schemas/clarify.py` `@field_validator("questions",
+  mode="before")` coerces strings/alt-keys→`{text}`, drops empties (self-test `['Which summary…','Time range?']` ✓;
+  `ClarifyQuestion.text` already `min_length=1`); (C) `prompt_builder_v3.py` clarify protocol rewritten to match the
+  schema — `questions` ARRAY of `{"text","options"}`, question in `text`, choices in `options`+"Other…", no
+  lists-in-text, worked example. Deploy: 2 BE files hot-cp + `docker restart ca-app` (schema+prompt reload), FE
+  fe-sync, app 200. Baked `:v1.71.2`=`:dev`, `VERSION_HYBRID`=1.71.2.
+- **Auto-learn backfill (2026-07-02):** existing Power BI clone `d0c33ff1` predated v1.71.0 (`use_llm_sync=false`) so
+  it never auto-learned. Flipped flag → ran `per_user_connector.autolearn_clone` in-container (`import main` first to
+  register ORM models — bare `import app.models` pulls dead `application.py` → broken `DataSourceApplicationAssociation`
+  mapper). `llm_sync` generated description + 4 conversation_starters + overview instruction (build #4) — persisted
+  (`description` + `conversation_starters` len 4). NEW clones auto-learn by default (v1.71.0). LANDMINE: `autolearn_clone`
+  is fail-soft — a swallowed error looks like "done"; verify DB fields actually populated. Un-baked (DB-only change).

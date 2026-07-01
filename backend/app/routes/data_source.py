@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from typing import Optional, List, Union
@@ -91,6 +91,99 @@ async def create_data_source(
             "connection", connection_ids, "manage_data_sources",
         )
     return await data_source_service.create_data_source(db, organization, current_user, data_source)
+
+
+# --- Per-user private connector (HYBRID_PER_USER_CONNECTOR) ------------------
+# Admin configures a connector template once; each member self-registers with
+# their own credentials → a private per-user clone with their own synced catalog.
+from pydantic import BaseModel as _BaseModel
+from app.services import per_user_connector
+
+
+class _RegisterConnectorRequest(_BaseModel):
+    auth_mode: str
+    credentials: dict
+
+
+@router.get("/connectors/available", response_model=list[dict])
+async def list_available_connectors(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Connector templates the caller can self-register against."""
+    return await per_user_connector.list_available_templates(db, organization)
+
+
+@router.post("/connectors/{template_id}/register", response_model=DataSourceSchema)
+async def register_connector(
+    template_id: str,
+    payload: _RegisterConnectorRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Register against a connector template with the caller's own credentials,
+    creating a private per-user data source synced under their own token."""
+    clone = await per_user_connector.register_template_for_user(
+        db,
+        template_id=template_id,
+        organization=organization,
+        user=current_user,
+        auth_mode=payload.auth_mode,
+        credentials=payload.credentials or {},
+    )
+    return await data_source_service.get_data_source(db, str(clone.id), organization, current_user)
+
+
+class _DeviceCodePollRequest(_BaseModel):
+    device_code: str
+
+
+@router.post("/connectors/{template_id}/device-code/start", response_model=dict)
+async def connector_device_code_start(
+    template_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Begin MFA-safe device-code sign-in against a Microsoft connector template."""
+    return await per_user_connector.device_code_start(
+        db, template_id=template_id, organization=organization
+    )
+
+
+@router.post("/connectors/{template_id}/device-code/poll", response_model=dict)
+async def connector_device_code_poll(
+    template_id: str,
+    payload: _DeviceCodePollRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Poll once; on success auto-registers the caller's private clone and returns
+    its data_source_id. Caller loops while status == 'pending'."""
+    result = await per_user_connector.device_code_poll(
+        db,
+        template_id=template_id,
+        organization=organization,
+        user=current_user,
+        device_code=payload.device_code,
+    )
+    # On a fresh sign-in, auto-learn the clone in the background (description +
+    # conversation starters + primary overview instruction) so it lands as a
+    # ready-to-use agent — same as the manual "Use LLM to learn agent". Runs
+    # after the response so sign-in returns instantly.
+    if result.get("status") == "success" and result.get("data_source_id"):
+        background_tasks.add_task(
+            per_user_connector.autolearn_clone,
+            result["data_source_id"],
+            str(organization.id),
+            str(current_user.id),
+        )
+    return result
+
 
 @router.delete("/data_sources/{data_source_id}")
 @requires_resource_permission('data_source', 'manage')

@@ -13,7 +13,7 @@
                         <span class="text-sm leading-none">{{ selectedStudio.avatar || '🎬' }}</span>
                         <span v-if="!isCompactFinal" class="ms-1 text-xs truncate max-w-[120px]">{{ selectedStudio.name }}</span>
                     </span>
-                    <span v-else-if="isAutoMode || STUDIOS_ONLY" class="flex items-center">
+                    <span v-else-if="(isAutoMode || STUDIOS_ONLY) && internalSelectedDataSources.length === 0" class="flex items-center">
                         <Icon name="heroicons-bolt" class="h-4 w-4" />
                         <span v-if="!isCompactFinal" class="ms-1 text-xs">Auto</span>
                     </span>
@@ -112,18 +112,11 @@
                                 <span class="text-[13px]">New Agent Studio</span>
                             </NuxtLink>
 
-                            <template v-if="!STUDIOS_ONLY && visibleDataSources.length > 0">
-                                <div
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
-                                    @click="toggleAutoMode"
-                                >
-                                    <div class="flex items-center">
-                                        <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 me-2" />
-                                        <span class="text-[13px]">Auto</span>
-                                    </div>
-                                    <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-[#C2541E]" />
-                                </div>
+                            <!-- Data Agents: selectable directly (alongside Studios). Auto
+                                 is already shown above, so no duplicate here. -->
+                            <template v-if="visibleDataSources.length > 0">
                                 <div class="my-1 border-t border-gray-100" />
+                                <div class="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Data Agents</div>
                                 <div
                                     v-for="ds in visibleDataSources"
                                     :key="ds.id"
@@ -154,7 +147,7 @@
                             <!-- Not-yet-connected (user_required) data sources: grayed out
                                  with a Connect action. These are NOT selectable and are
                                  never persisted to the report until connected. -->
-                            <template v-if="!STUDIOS_ONLY && connectableDataSources.length > 0">
+                            <template v-if="connectableDataSources.length > 0">
                                 <div v-if="visibleDataSources.length > 0" class="my-1 border-t border-gray-100" />
                                 <div
                                     v-for="ds in connectableDataSources"

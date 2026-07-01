@@ -29,7 +29,7 @@
 
         <div>
             <div v-if="loading" class="text-xs text-[#6b6b6b] text-center">{{ $t('common.loading') }}</div>
-            <div v-else class="md:w-2/3 space-y-6">
+            <div v-else class="space-y-6">
 
                 <!-- Primary Instruction -->
                 <div>

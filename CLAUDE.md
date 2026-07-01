@@ -453,8 +453,63 @@ Versioned feature feed surfaced as a 🔔 bell popover in TopNav (before profile
 
 **2026-06-29 FE EPHEMERAL (fe-sync only, NOT baked — pending `docker commit`):** (1) **plan-block chat leak FIXED** — `HYBRID_AGENT_PLAN` flag-on (org e02b1b04, default OFF) emits a `source_type='plan'` block; chat body renderer `reports/[id]/index.vue:387` was the 1-of-4 consumer missing the plan-skip guard → dumped raw `{"tasks":[...]}`. Fix = `&& block.source_type !== 'plan'`. RULE: skip `source_type='plan'` in EVERY render path (Progress=stepMap.ts:348/484, context=message_context_builder.py:597/1221 already do). (2) **merged Create/Activity into ONE no-tabs panel** (Option A) in the `coworkEnabled` block of `reports/[id]/index.vue` (removed `coworkTab` toggle; Create grid top + Activity below, one scroll). (3) **"only April summary" ROOT CAUSE = silent partial ingest:** CRM Agent source `0b9b39ac` has 1 table, 2447 rows ALL `_source_period=2025-04` (6 months uploaded, 5 never materialized; merged table mis-NAMED `_apr_25` → agent frames answer "April"). Guardrails proposed (manifest+reconcile / coverage-context to agent / neutral table naming / atomic batch merge / post-ingest verify-gate), NOT built. Detail → [[project_cityagent_panel_ingest_completeness]].
 
-**Current state (2026-07-01):** image `cityagent-analytics:dev` on `:3007` (baked `:v1.65.0`), branch `main`,
-mig head **`defreg1`**, `VERSION_HYBRID`=**1.65.0**. **v1.65.0 = Power BI P3 device-code sign-in (MFA-safe, BAKED):**
+**Current state (2026-07-02):** image `cityagent-analytics:dev` on `:3007` (baked `:v1.71.2`), branch `main`,
+mig head **`peruser_tmpl1`**, `VERSION_HYBRID`=**1.71.2**. **v1.71.2 = blank-clarify fix (3 layers):** prompt told model
+to emit singular `question` STRING but clarify schema wants `questions:[{text,options}]` → weak models emitted strings →
+`ClarifyTool.vue` read `q.text`=undefined → blank box. Fixed: (A) FE `ClarifyTool.vue` `questions` computed normalizes
+string/alt-key items→`{text}`+drops empties; (B) BE `ai/tools/schemas/clarify.py` `@field_validator("questions",before)`
+coerces+drops; (C) `prompt_builder_v3.py` clarify block rewritten to schema shape + worked example. **v1.71.1:** Data
+Agents now in New-Report picker (`DataSourceSelector.vue` dropped `STUDIOS_ONLY` gate → shows Studios + Data Agents).
+**Auto-learn backfill:** pre-v1.71.0 clone `d0c33ff1` (`use_llm_sync=false`) backfilled via in-container
+`per_user_connector.autolearn_clone` (`import main` first) → description + 4 starters + overview build #4. NEW clones
+auto-learn by default. **v1.71.0:** (A) `/agents` PERSONAL VIEW — `allAgents` drops
+public agents you don't own (keep `!is_public` OR `owner_user_id===myUserId` via `useAuth()`) + `!is_user_template`;
+(B) AUTO-LEARN on connect — clone `use_llm_sync=True` + `per_user_connector.autolearn_clone()` (own `async_session_maker`
+session → `DataSourceService.llm_sync` = description+starters+overview instruction) scheduled via `BackgroundTasks` on
+`/connectors/{id}/device-code/poll` after success. `llm_sync` (`data_source_service.py:630`) = same routine as manual
+wizard "Use LLM to learn agent". **v1.70.3:** agent-detail rail = EXACT copy of
+`components/nav/AppRail.vue` `.cag-rail-card` (Workspace/Manage parity): shell `flex bg-[#F1ECE3]`, rail 240px `#FBFAF6`
+radius16 m-2, `.cag-eyebrow`/`.cag-sec-link`/`.cag-sec-active`(bg#ECEAE1) copied verbatim into `layouts/data.vue` scoped
+CSS + `tabIcon()` heroicons + main `#FBFAF6` card. LANDMINE: agent rail is a HARDCODED replica (tabs are per-id dynamic,
+don't fit static `useAppNav.ts` array) — if AppRail styling changes, update data.vue's copy too. **v1.70.x = ONE-CLICK connector agents + Manage-style agent
+detail (BAKED):** v1.70.0 sign-in IS agent creation (wizard `/agents/new` bypassed for MS); `DataSourceService_seed`
+auto-activates ALL tables (`max_auto_select=100000`); FE `agents/index.vue` `connectorMeta(ds)`→LOGO+NAME+email, removed
+show-all/Create btns. v1.70.1 `allAgents` filters `is_user_template` (admin template no longer a phantom agent card).
+v1.70.2 agent detail redesign — **tabs live in `layouts/data.vue`** (NOT `[id]/index.vue` = Overview slot only): moved to
+sticky LEFT RAIL (identity via `connectorMeta` + `tabGroups` Explore/Configure/Observe + **Test** GET
+`/data_sources/{id}/test_connection` + **Disconnect** gated `isClone`→DELETE ds then DELETE each `/connections/{id}`).
+Isolation unchanged (v1.69.4 guard). Agent-detail (D) DONE.
+**v1.69.x = MICROSOFT CONNECTORS HUB on `/agents` (BAKED,
+rollback `pre-connector-hub-revamp`):** admin configures a connector TEMPLATE once (`is_user_template=True` DataSource +
+`auth_policy=user_required` Connection); each user (incl. admin) signs in via **device-code** (FOCI public client
+`1950a258…`, no app-reg, MFA-safe) → private per-user clone syncs under THEIR token. **Fabric + Power BI (User Sign-in)
+LIVE**; SharePoint/OneDrive coming-soon. `powerbi_device_code.py` scope-parametric (`SCOPE_FABRIC/POWERBI/GRAPH`) +
+`refresh_to_access_token()` (redeem refresh_token→Fabric SQL token, feeds `MsFabricClient(refresh_token=)`→ODBC
+`attrs_before={1256}`). Routes **`/api/connectors/*`** (`available`/`register`/`device-code/{start,poll}`; router NO
+prefix, main.py adds `/api`). FE `components/connectors/ConnectorsMsHub.vue` (COMPACT tiles + ⚙gear=configure) top of
+`pages/agents/index.vue`; **Connections chips section REMOVED**; NEW **Manage connectors** page `pages/connectors/manage.vue`.
+Admin no-typed-DB → `MSFabricConfig.database` optional + `MsFabricClient` auto-discovers accessible warehouses
+(`_accessible_databases`, NEEDS-LIVE-TEST). Flag `HYBRID_PER_USER_CONNECTOR` ON org 7d372305. LANDMINES: (1) private
+(owner_user_id) connections must NEVER trigger the CONNECTOR_AS_AGENT hook — guard `if not owner_user_id:` in
+`create_connection` (else it spawns a 2nd PUBLIC agent = dupe+leak); (2) `_resolve_client_by_type` must use
+`resolve_client_class` (registry client_path), not derive names (`powerbi_user`→`PowerBIUserClient`); (3) per-user
+connect uses `create_connection(validate=False)` — empty/on-prem PowerBI catalog must not hard-fail connect. Detail →
+memory `project_cityagent_ms_connector_hub` + DEVLOG 2026-07-01. PENDING (D): agent-detail redesign (tabs + left summary
++ chat bar), NOT built. **v1.67.0 = Data Agents page + connector→org-visible-agent (BAKED):**
+the full bagofwords Data Agents page already existed at `/agents` (DataSource=agent) — surfaced it in the TOP nav between
+Studios & Workspace (`useAppNav.ts` `direct:'/agents'`, top-bar-only) + reworked `services/connector_agent.py` to make a
+connected source an **org-visible Data Agent** (`is_public=True`, Studio path REMOVED). `is_public` + `user_required` =
+admin connects once → whole org sees it on `/agents`, each signs in own account (per-user gate + `resolve_credentials` by
+user_id). Flag `HYBRID_CONNECTOR_AS_AGENT` ON org 7d372305, rollback `pre-dataagent-rollback`, NOT git-pushed. SUPERSEDES
+v1.66 Studio auto-agent (removed). Detail → DEVLOG 2026-07-01.
+**v1.66.0 = Connector → Data Agent (superseded by v1.67):** admin connects a
+source once → `services/connector_agent.py::auto_create_agent_for_connection` auto-spawns an org-shared Studio bound to
+it (flag `HYBRID_CONNECTOR_AS_AGENT`, idempotent via `Studio.config.source_connection_id`, greenlet-safe, fail-soft;
+hooked in `connection_service.create_connection`). Power BI `tenant_id`→`PowerbiUserConfig` (admin-set-once), optional
+in creds; `construct_client(s)` strip-None-from-creds-pre-merge guard so a blank user field can't wipe the admin tenant.
+Phases 3-5 reuse (org studio-list `share_scope=='org'`, `ReportAgentPanel` sign-in gate, per-user `resolve_credentials`
++overlay). Flag ON org 7d372305, rollback `pre-connector-agent-rollback`, NOT git-pushed. Detail → DEVLOG 2026-07-01.
+**v1.65.0 = Power BI P3 device-code sign-in (MFA-safe, BAKED):**
 `services/powerbi_device_code.py` (start/poll, MS public client, offline_access→refresh_token) + routes
 `POST /data_sources/{id}/my-credentials/device-code/{start,poll}` (poll-success persists Fernet refresh_token) +
 `PowerBIUserClient.refresh_token` param + refresh-grant branch in `connect()` + FE "Sign in with a code" button.
@@ -464,7 +519,7 @@ Proven live (SG tenant approved in browser → refresh_token → 3 workspaces). 
 #8 scan-ALL-tenants (`services/powerbi_multi_tenant_scan.py` → merged tenant-tagged per-user overlay via `_upsert_user_overlay`;
 route `POST /data_sources/{id}/my-credentials/scan-all-tenants` + FE "Scan all my tenants" btn) + P5 storage-mode gate
 (`powerbi_client.py` tags `powerbi.queryable`) + P4 brute table-discovery (`_brute_discover_tables`, HARDENED: skip empty DBs +
-abort on 429). Flag `HYBRID_POWERBI_USER` ON org 7d372305, rollback `pre-powerbi-rollback`, NOT git-pushed. Detail → DEVLOG 2026-07-01. **GIT: v1.51→1.58 pushed `e92eb8c` (main); everything after — v1.59 through v1.65 (PowerBI P1–P3 + #8/P4/P5, verified-golden train, E3/E4 ingest) — EPHEMERAL/commit-baked only, NOT pushed. Image tags: `:v1.65.0`=`:dev`, rollbacks `pre-p3-rollback`(=1.64)/`pre-powerbi-rollback`(=1.64 base)/`pre142-rollback`… Baked work lives only in the local image → PUSH is the top open risk.**
+abort on 429). Flag `HYBRID_POWERBI_USER` ON org 7d372305, rollback `pre-powerbi-rollback`, NOT git-pushed. Detail → DEVLOG 2026-07-01. **GIT: v1.51→1.58 pushed `e92eb8c` (main); everything after — v1.59 through v1.66 (PowerBI P1–P3 + #8/P4/P5, Connector→Data-Agent, verified-golden train, E3/E4 ingest) — EPHEMERAL/commit-baked only, NOT pushed. Image tags: `:v1.65.0`=`:dev`, rollbacks `pre-p3-rollback`(=1.64)/`pre-powerbi-rollback`(=1.64 base)/`pre142-rollback`… Baked work lives only in the local image → PUSH is the top open risk.**
 **v1.63.0 = verified-golden EVAL GATE wired INTO training** — new fail-soft stage in `ai/knowledge/train_orchestrator.run_training` (after `joins`, before `hybrid_index`), gated `HYBRID_VERIFIED_GOLDENS` AND `HYBRID_FULL_PIPELINE`: loads `AgentDefinition`s → `golden_gen`→`eval_gate` → saves only matches (`pipeline._save_golden`), HOLDS mismatch/error. Proven real train org **7d372305**: 3 approved (Lead 1544/Succ 7526/Unsucc 4179 EXACT)/6 held. Detail `docs/TRAINING_TODO.md`+`TRAINING_STATE.md`, DEVLOG 2026-07-01. **LANDMINE: offline `docker exec python` skips `load_overrides_from_db` → flags read OFF (e.g. `ONE_TABLE_MERGE`) → wrong results; `set_override`/load first.** Snapshot `rollback-training-20260701`.
 **E3/E4 INGEST WIRED (2026-07-01, EPHEMERAL, flags OFF):** agent file-upload route `routes/data_source_from_file.py` block **4c4** (after reconcile, before post-ingest, gated `COLUMN_PROFILE or DATA_VALIDATION`, fail-soft): E3 `column_profile.profile_frame`→`persist_profile` into `DataSourceTable.columns[].metadata` (auto-surfaces via existing column-metadata render — distinct/nulls/values); E4 `data_validator.null_and_dup_checks`→`build_data_quality_block`→`metadata_json['data_quality']` per table (findings only). Render: `ai/context/sections/tables_schema_section._render_data_quality_note()` wired into both table render paths. Flags `HYBRID_COLUMN_PROFILE`+`HYBRID_DATA_VALIDATION` default OFF. NOT ON org 7d372305 yet, NOT baked. See DEVLOG 2026-07-01.
 **PowerBI probe (2026-07-01):** `scratchpad/pbi_probe.py` (stdlib :8899, email+pw→token/workspaces/datasets/query-test/diagnosis). CONFIRMED identity `<pbi-test-user>` correct, standard Pro member (not admin). Hub Team datasets Abf+onPrem → constant DAX 200 but INFO.TABLES 400 (on-prem-gateway = non-REST-queryable, LIVE). `DataAgent_TestRun` still not visible → wrong grant/workspace. → [[project_cityagent_powerbi_item_access]].
